@@ -28,65 +28,74 @@ export function computeCoverage(
   return { pct, unknown };
 }
 
-export async function generateStoryWithLLM(
+function buildStoryPrompt(
   knownWords: Word[],
   length: "short" | "medium",
   maxStretchWords: number
-): Promise<GeneratedStory> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
-  }
-
+): string {
   const wordList = knownWords.map((w) => w.lemma).slice(0, 500);
   const lengthGuide =
     length === "short"
       ? "about 150-250 Russian words"
       : "about 400-600 Russian words";
 
-  const prompt = `Write a ${lengthGuide} story entirely in Russian for a language learner.
+  return `You are a Russian language tutor creating graded reader stories.
+
+Write a ${lengthGuide} story entirely in Russian for a language learner.
 
 RULES:
 - Use ONLY vocabulary from this list when possible: ${wordList.join(", ")}
-- You may use up to ${maxStretchWords} simple new words if needed for the story to flow; list them at the end.
+- You may use up to ${maxStretchWords} simple new words if needed for the story to flow; list them in stretch_words.
 - Use simple, clear sentences suitable for reading practice.
 - Return JSON only with this shape: {"title": "...", "content_ru": "...", "stretch_words": ["word1", "word2"]}`;
+}
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a Russian language tutor creating graded reader stories. Respond with valid JSON only.",
+function parseStoryJson(raw: string): {
+  title: string;
+  content_ru: string;
+  stretch_words?: string[];
+} {
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("Failed to parse story from LLM response");
+  return JSON.parse(jsonMatch[0]);
+}
+
+export async function generateStoryWithGemini(
+  knownWords: Word[],
+  length: "short" | "medium",
+  maxStretchWords: number
+): Promise<GeneratedStory> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
+
+  const model = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
+  const prompt = buildStoryPrompt(knownWords, length, maxStretchWords);
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          responseMimeType: "application/json",
         },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.7,
-    }),
-  });
+      }),
+    }
+  );
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`OpenAI API error: ${err}`);
+    throw new Error(`Gemini API error: ${err}`);
   }
 
   const data = await response.json();
-  const raw = data.choices?.[0]?.message?.content ?? "";
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("Failed to parse story from LLM response");
-
-  const parsed = JSON.parse(jsonMatch[0]) as {
-    title: string;
-    content_ru: string;
-    stretch_words?: string[];
-  };
+  const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const parsed = parseStoryJson(raw);
 
   const knownSet = new Set(knownWords.map((w) => w.lemma));
   const stretchWords = (parsed.stretch_words ?? []).slice(0, maxStretchWords);
@@ -135,8 +144,8 @@ export async function generateStory(
   length: "short" | "medium",
   maxStretchWords: number
 ): Promise<GeneratedStory> {
-  if (process.env.OPENAI_API_KEY) {
-    return generateStoryWithLLM(knownWords, length, maxStretchWords);
+  if (process.env.GEMINI_API_KEY) {
+    return generateStoryWithGemini(knownWords, length, maxStretchWords);
   }
   return generateFallbackStory(knownWords, length);
 }

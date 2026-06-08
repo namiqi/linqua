@@ -77,7 +77,7 @@ export default function NewStoryPage() {
           </label>
 
           <p className="text-sm text-slate-500">
-            Uses OpenAI if OPENAI_API_KEY is set; otherwise generates a simple template story.
+            Uses Gemini if GEMINI_API_KEY is set; otherwise generates a simple template story.
           </p>
 
           {error && <p className="text-sm text-rose-600">{error}</p>}
