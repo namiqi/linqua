@@ -1,5 +1,8 @@
 import { PageHeader, Button } from "@/components/ui";
 import { createLessonAction } from "./actions";
+import { SubmitLessonButton } from "./submit-button";
+
+export const maxDuration = 26;
 
 export default function NewLessonPage() {
   return (
@@ -41,7 +44,7 @@ export default function NewLessonPage() {
           </div>
 
           <div className="flex gap-3">
-            <Button type="submit">Extract words & review</Button>
+            <SubmitLessonButton />
             <a href="/dashboard">
               <Button type="button" variant="secondary">
                 Cancel
