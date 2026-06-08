@@ -55,7 +55,7 @@ export default async function StoriesPage() {
                     <p className="mt-1 text-sm text-slate-500">
                       {new Date(story.created_at).toLocaleDateString()}
                       {story.known_word_pct != null &&
-                        ` · ${story.known_word_pct}% known words`}
+                        ` · ${story.known_word_pct}% familiar`}
                     </p>
                   </Link>
                 ))}

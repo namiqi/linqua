@@ -55,7 +55,7 @@ export default function NewStoryPage() {
 
           <div>
             <label className="block text-sm font-medium text-slate-700">
-              Max stretch words (new words allowed in story)
+              Max new words (beyond your vocab, allowed in the story)
             </label>
             <input
               type="number"

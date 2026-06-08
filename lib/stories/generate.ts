@@ -9,6 +9,14 @@ export interface GeneratedStory {
   stretchWords: string[];
 }
 
+export interface StoryCoverage {
+  exactPct: number;
+  familiarPct: number;
+  stretchInStory: number;
+  totalTokens: number;
+  unknownWords: string[];
+}
+
 const CYRILLIC_WORD = /[\u0400-\u04FF]+/gu;
 
 const DEFAULT_GEMINI_MODELS = [
@@ -21,24 +29,87 @@ function extractStoryWords(text: string): string[] {
   return (text.match(CYRILLIC_WORD) ?? []).map((w) => w.toLowerCase());
 }
 
+function isExactMatch(word: string, knownLemmas: Set<string>): boolean {
+  return knownLemmas.has(word);
+}
+
+function isStretchMatch(word: string, stretchLemmas: Set<string>): boolean {
+  return stretchLemmas.has(word);
+}
+
+/** Rough stem match: думать ↔ думаешь, устать ↔ устал */
+function isStemMatch(word: string, lemma: string): boolean {
+  if (lemma.includes(" ") || lemma.length < 3) return false;
+  const stemLen = Math.min(lemma.length - 1, 5);
+  const stem = lemma.slice(0, stemLen);
+  return word.startsWith(stem) || lemma.startsWith(word);
+}
+
+export function isWordFamiliar(
+  word: string,
+  knownLemmas: Set<string>,
+  stretchLemmas: Set<string>
+): boolean {
+  if (isExactMatch(word, knownLemmas) || isStretchMatch(word, stretchLemmas)) {
+    return true;
+  }
+  for (const lemma of knownLemmas) {
+    if (isStemMatch(word, lemma)) return true;
+  }
+  for (const lemma of stretchLemmas) {
+    if (isStemMatch(word, lemma)) return true;
+  }
+  return false;
+}
+
+export function computeStoryCoverage(
+  contentRu: string,
+  knownLemmas: Set<string>,
+  stretchWords: string[] = []
+): StoryCoverage {
+  const tokens = extractStoryWords(contentRu);
+  if (tokens.length === 0) {
+    return {
+      exactPct: 100,
+      familiarPct: 100,
+      stretchInStory: 0,
+      totalTokens: 0,
+      unknownWords: [],
+    };
+  }
+
+  const stretchSet = new Set(stretchWords.map((w) => w.toLowerCase()));
+  let exactCount = 0;
+  let familiarCount = 0;
+  let stretchInStory = 0;
+  const unknownSet = new Set<string>();
+
+  for (const word of tokens) {
+    if (isExactMatch(word, knownLemmas)) exactCount++;
+    if (isStretchMatch(word, stretchSet)) stretchInStory++;
+    if (isWordFamiliar(word, knownLemmas, stretchSet)) {
+      familiarCount++;
+    } else {
+      unknownSet.add(word);
+    }
+  }
+
+  return {
+    exactPct: Math.round((exactCount / tokens.length) * 100),
+    familiarPct: Math.round((familiarCount / tokens.length) * 100),
+    stretchInStory,
+    totalTokens: tokens.length,
+    unknownWords: [...unknownSet].slice(0, 30),
+  };
+}
+
+/** @deprecated use computeStoryCoverage */
 export function computeCoverage(
   contentRu: string,
   knownLemmas: Set<string>
 ): { pct: number; unknown: string[] } {
-  const words = extractStoryWords(contentRu);
-  if (words.length === 0) return { pct: 100, unknown: [] };
-
-  const unknown = [...new Set(words.filter((w) => !knownLemmas.has(w)))];
-  const knownCount = words.length - words.filter((w) => !knownLemmas.has(w)).length;
-  const pct = Math.round((knownCount / words.length) * 100);
-  return { pct, unknown };
-}
-
-function pickWordsForPrompt(knownWords: Word[], limit = 120): string[] {
-  const lemmas = knownWords.map((w) => w.lemma);
-  if (lemmas.length <= limit) return lemmas;
-  const shuffled = [...lemmas].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, limit);
+  const result = computeStoryCoverage(contentRu, knownLemmas);
+  return { pct: result.familiarPct, unknown: result.unknownWords };
 }
 
 function buildStoryPrompt(
@@ -46,21 +117,28 @@ function buildStoryPrompt(
   length: "short" | "medium",
   maxStretchWords: number
 ): string {
-  const wordList = pickWordsForPrompt(knownWords);
+  const wordList = knownWords.map((w) => w.lemma);
   const lengthGuide =
     length === "short"
-      ? "about 150-250 Russian words"
-      : "about 400-600 Russian words";
+      ? "about 80-120 Russian words"
+      : "about 150-220 Russian words";
 
   return `You are a Russian language tutor creating graded reader stories.
 
-Write a ${lengthGuide} story entirely in Russian for a language learner.
+Write a ${lengthGuide} dialogue or story entirely in Russian for a language learner.
 
-RULES:
-- Use ONLY vocabulary from this list when possible: ${wordList.join(", ")}
-- You may use up to ${maxStretchWords} simple new words if needed for the story to flow; list them in stretch_words.
-- Use simple, clear sentences suitable for reading practice.
-- Return JSON only with this shape: {"title": "...", "content_ru": "...", "stretch_words": ["word1", "word2"]}`;
+STRICT VOCABULARY RULES:
+- Every word in content_ru MUST come from ONLY these two sources:
+  1) The learner's vocabulary list below (use any word form naturally: думать→думаешь, устать→устал)
+  2) At most ${maxStretchWords} NEW words total — put ONLY these in stretch_words array
+- Do NOT use any other words. If you need a word not in the list, it must be one of your ${maxStretchWords} stretch_words.
+- stretch_words must contain ONLY genuinely new words not in the vocabulary list. Maximum ${maxStretchWords} items.
+
+Learner vocabulary (${wordList.length} words):
+${wordList.join(", ")}
+
+Return JSON only:
+{"title": "...", "content_ru": "...", "stretch_words": ["word1", "word2"]}`;
 }
 
 function parseStoryJson(raw: string): {
@@ -153,14 +231,20 @@ export async function generateStoryWithGemini(
     try {
       const raw = await callGeminiModel(apiKey, model, prompt);
       const parsed = parseStoryJson(raw);
-      const knownSet = new Set(knownWords.map((w) => w.lemma));
-      const stretchWords = (parsed.stretch_words ?? []).slice(0, maxStretchWords);
-      const { pct } = computeCoverage(parsed.content_ru, knownSet);
+      const knownSet = new Set(knownWords.map((w) => w.lemma.toLowerCase()));
+      const stretchWords = (parsed.stretch_words ?? [])
+        .map((w) => w.toLowerCase())
+        .slice(0, maxStretchWords);
+      const coverage = computeStoryCoverage(
+        parsed.content_ru,
+        knownSet,
+        stretchWords
+      );
 
       return {
         title: parsed.title,
         contentRu: parsed.content_ru,
-        knownWordPct: pct,
+        knownWordPct: coverage.familiarPct,
         stretchWords,
       };
     } catch (error) {
