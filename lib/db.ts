@@ -9,7 +9,11 @@ import type {
   Word,
 } from "./types";
 import { extractWords } from "./russian/extract";
-import type { ExtractedWordEntry } from "./types";
+import {
+  formatDbError,
+  getLessonExtractedWords,
+  isMissingExtractedWordsColumn,
+} from "./errors";
 
 const BATCH_SIZE = 200;
 
@@ -70,7 +74,7 @@ export async function getLessons(userId: string): Promise<LessonWithStats[]> {
   );
 
   return lessons.map((lesson) => {
-    const extracted = (lesson.extracted_words as ExtractedWordEntry[] | null) ?? [];
+    const extracted = getLessonExtractedWords(lesson);
     const entries =
       lessonWords?.filter((lw) => lw.lesson_id === lesson.id) ?? [];
     const newCount = entries.filter(
@@ -95,7 +99,7 @@ export async function createLesson(
   const supabase = createServiceClient();
   const extracted = extractWords(transcript);
 
-  const { data: lesson, error: lessonError } = await supabase
+  let result = await supabase
     .from("lessons")
     .insert({
       user_id: userId,
@@ -106,9 +110,19 @@ export async function createLesson(
     .select("id")
     .single();
 
-  if (lessonError || !lesson) throw lessonError ?? new Error("Failed to create lesson");
+  if (result.error && isMissingExtractedWordsColumn(result.error)) {
+    result = await supabase
+      .from("lessons")
+      .insert({ user_id: userId, name, transcript })
+      .select("id")
+      .single();
+  }
 
-  return lesson.id;
+  if (result.error || !result.data) {
+    throw new Error(formatDbError(result.error ?? new Error("Failed to create lesson")));
+  }
+
+  return result.data.id;
 }
 
 export async function getLessonReviewWords(
@@ -126,10 +140,10 @@ export async function getLessonReviewWords(
 
   if (lessonError || !lesson) throw lessonError ?? new Error("Lesson not found");
 
-  const extracted = (lesson.extracted_words as ExtractedWordEntry[] | null) ?? [];
+  const extracted = getLessonExtractedWords(lesson);
 
   if (extracted.length === 0) {
-    return getLessonReviewWordsLegacy(supabase, lesson as Lesson, lessonId);
+    return { lesson: lesson as Lesson, words: [] };
   }
 
   const lemmas = extracted.map((e) => e.lemma);
@@ -182,37 +196,6 @@ export async function getLessonReviewWords(
   });
 
   return { lesson: lesson as Lesson, words };
-}
-
-async function getLessonReviewWordsLegacy(
-  supabase: ReturnType<typeof createServiceClient>,
-  lesson: Lesson,
-  lessonId: string
-): Promise<{ lesson: Lesson; words: ReviewWord[] }> {
-  const { data: lessonWords } = await supabase
-    .from("lesson_words")
-    .select("occurrence_count, word_id")
-    .eq("lesson_id", lessonId);
-
-  const wordIds = (lessonWords ?? []).map((lw) => lw.word_id);
-  const { data: wordsData } = wordIds.length
-    ? await supabase.from("words").select("*").in("id", wordIds)
-    : { data: [] };
-
-  const wordMap = new Map((wordsData ?? []).map((w) => [w.id, w as Word]));
-
-  const words: ReviewWord[] = (lessonWords ?? []).map((lw) => {
-    const existingWord = wordMap.get(lw.word_id) ?? null;
-    const skipped = existingWord?.status === "known";
-    return {
-      lemma: existingWord?.lemma ?? "",
-      occurrence_count: lw.occurrence_count,
-      existingWord,
-      skipped,
-    };
-  });
-
-  return { lesson, words };
 }
 
 export async function reviewWord(
