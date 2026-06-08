@@ -3,6 +3,7 @@ import { requireUserId } from "@/lib/auth";
 import { getDashboardStats, getLessons } from "@/lib/db";
 import { STORY_UNLOCK_THRESHOLD } from "@/lib/constants";
 import { PageHeader, StatCard, ProgressBar, Button } from "@/components/ui";
+import { ResetDataButton } from "./reset-button";
 
 export default async function DashboardPage() {
   const userId = await requireUserId();
@@ -80,7 +81,7 @@ export default async function DashboardPage() {
                     {new Date(lesson.created_at).toLocaleDateString()} · {lesson.wordCount} words
                     {lesson.newCount > 0 && ` · ${lesson.newCount} learning`}
                   </p>
-                  {!lesson.reviewed_at && (
+                  {!lesson.reviewed_at && lesson.reviewedCount < lesson.wordCount && (
                     <span className="mt-3 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
                       Review pending
                     </span>
@@ -90,6 +91,8 @@ export default async function DashboardPage() {
             </div>
           )}
         </section>
+
+        <ResetDataButton />
       </main>
     </div>
   );

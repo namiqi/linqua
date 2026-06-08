@@ -1,10 +1,16 @@
 import type { WordStatus } from "./constants";
 
+export interface ExtractedWordEntry {
+  lemma: string;
+  occurrence_count: number;
+}
+
 export interface Lesson {
   id: string;
   user_id: string;
   name: string;
   transcript: string;
+  extracted_words: ExtractedWordEntry[];
   created_at: string;
   reviewed_at: string | null;
 }

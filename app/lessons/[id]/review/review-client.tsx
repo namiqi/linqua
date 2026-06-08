@@ -37,7 +37,13 @@ export function ReviewClient({ lesson, words }: ReviewClientProps) {
       const translationValue =
         translations[lemma] ?? current.existingWord?.translation ?? "";
       startTransition(async () => {
-        await markWordAction(lesson.id, lemma, status, translationValue);
+        await markWordAction(
+          lesson.id,
+          lemma,
+          status,
+          translationValue,
+          current.occurrence_count
+        );
         setIndex((i) => i + 1);
       });
     },

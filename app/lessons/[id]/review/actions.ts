@@ -8,10 +8,11 @@ export async function markWordAction(
   lessonId: string,
   lemma: string,
   status: "known" | "learning",
-  translation?: string
+  translation?: string,
+  occurrenceCount?: number
 ) {
   const userId = await requireUserId();
-  await reviewWord(userId, lessonId, lemma, status, translation);
+  await reviewWord(userId, lessonId, lemma, status, translation, occurrenceCount ?? 1);
 }
 
 export async function finishReviewAction(lessonId: string) {

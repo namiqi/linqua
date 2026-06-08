@@ -9,6 +9,7 @@ import type {
   Word,
 } from "./types";
 import { extractWords } from "./russian/extract";
+import type { ExtractedWordEntry } from "./types";
 
 const BATCH_SIZE = 200;
 
@@ -69,17 +70,19 @@ export async function getLessons(userId: string): Promise<LessonWithStats[]> {
   );
 
   return lessons.map((lesson) => {
+    const extracted = (lesson.extracted_words as ExtractedWordEntry[] | null) ?? [];
     const entries =
       lessonWords?.filter((lw) => lw.lesson_id === lesson.id) ?? [];
     const newCount = entries.filter(
       (e) => wordStatusMap.get(e.word_id) === "learning"
     ).length;
+    const wordCount = extracted.length > 0 ? extracted.length : entries.length;
 
     return {
       ...(lesson as Lesson),
-      wordCount: entries.length,
+      wordCount,
       newCount,
-      reviewedCount: lesson.reviewed_at ? entries.length : 0,
+      reviewedCount: entries.length,
     };
   });
 }
@@ -94,70 +97,16 @@ export async function createLesson(
 
   const { data: lesson, error: lessonError } = await supabase
     .from("lessons")
-    .insert({ user_id: userId, name, transcript })
+    .insert({
+      user_id: userId,
+      name,
+      transcript,
+      extracted_words: extracted,
+    })
     .select("id")
     .single();
 
   if (lessonError || !lesson) throw lessonError ?? new Error("Failed to create lesson");
-
-  if (extracted.length === 0) return lesson.id;
-
-  const lemmas = extracted.map((e) => e.lemma);
-  const existingMap = new Map<string, Word>();
-
-  for (const lemmaBatch of chunk(lemmas, BATCH_SIZE)) {
-    const { data: existingWords, error } = await supabase
-      .from("words")
-      .select("*")
-      .eq("user_id", userId)
-      .in("lemma", lemmaBatch);
-
-    if (error) throw error;
-    for (const word of existingWords ?? []) {
-      existingMap.set(word.lemma, word as Word);
-    }
-  }
-
-  const newWordRows = extracted
-    .filter(({ lemma }) => !existingMap.has(lemma))
-    .map(({ lemma }) => ({
-      user_id: userId,
-      lemma,
-      status: "learning" as const,
-      source_lesson_id: lesson.id,
-    }));
-
-  for (const insertBatch of chunk(newWordRows, BATCH_SIZE)) {
-    const { data: newWords, error } = await supabase
-      .from("words")
-      .insert(insertBatch)
-      .select("*");
-
-    if (error) throw error;
-    for (const word of newWords ?? []) {
-      existingMap.set(word.lemma, word as Word);
-    }
-  }
-
-  const lessonWordRows = extracted.flatMap(({ lemma, occurrence_count }) => {
-    const word = existingMap.get(lemma);
-    if (!word) return [];
-    return [
-      {
-        lesson_id: lesson.id,
-        word_id: word.id,
-        occurrence_count,
-      },
-    ];
-  });
-
-  for (const linkBatch of chunk(lessonWordRows, BATCH_SIZE)) {
-    const { error } = await supabase
-      .from("lesson_words")
-      .upsert(linkBatch, { onConflict: "lesson_id,word_id" });
-
-    if (error) throw error;
-  }
 
   return lesson.id;
 }
@@ -177,6 +126,69 @@ export async function getLessonReviewWords(
 
   if (lessonError || !lesson) throw lessonError ?? new Error("Lesson not found");
 
+  const extracted = (lesson.extracted_words as ExtractedWordEntry[] | null) ?? [];
+
+  if (extracted.length === 0) {
+    return getLessonReviewWordsLegacy(supabase, lesson as Lesson, lessonId);
+  }
+
+  const lemmas = extracted.map((e) => e.lemma);
+  const existingByLemma = new Map<string, Word>();
+
+  for (const lemmaBatch of chunk(lemmas, BATCH_SIZE)) {
+    const { data: existingWords, error } = await supabase
+      .from("words")
+      .select("*")
+      .eq("user_id", userId)
+      .in("lemma", lemmaBatch);
+
+    if (error) throw error;
+    for (const word of existingWords ?? []) {
+      existingByLemma.set(word.lemma, word as Word);
+    }
+  }
+
+  const { data: reviewedLinks } = await supabase
+    .from("lesson_words")
+    .select("word_id")
+    .eq("lesson_id", lessonId);
+
+  const reviewedWordIds = (reviewedLinks ?? []).map((link) => link.word_id);
+  const reviewedLemmas = new Set<string>();
+  for (const idBatch of chunk(reviewedWordIds, BATCH_SIZE)) {
+    const { data: reviewedWords } = await supabase
+      .from("words")
+      .select("lemma")
+      .in("id", idBatch);
+    for (const word of reviewedWords ?? []) {
+      reviewedLemmas.add(word.lemma);
+    }
+  }
+
+  const words: ReviewWord[] = extracted.map(({ lemma, occurrence_count }) => {
+    const existingWord = existingByLemma.get(lemma) ?? null;
+    const alreadyReviewed =
+      reviewedLemmas.has(lemma) ||
+      existingWord?.source_lesson_id === lessonId;
+    const skipped =
+      existingWord?.status === "known" && !alreadyReviewed;
+
+    return {
+      lemma,
+      occurrence_count,
+      existingWord,
+      skipped: skipped || alreadyReviewed,
+    };
+  });
+
+  return { lesson: lesson as Lesson, words };
+}
+
+async function getLessonReviewWordsLegacy(
+  supabase: ReturnType<typeof createServiceClient>,
+  lesson: Lesson,
+  lessonId: string
+): Promise<{ lesson: Lesson; words: ReviewWord[] }> {
   const { data: lessonWords } = await supabase
     .from("lesson_words")
     .select("occurrence_count, word_id")
@@ -200,7 +212,7 @@ export async function getLessonReviewWords(
     };
   });
 
-  return { lesson: lesson as Lesson, words };
+  return { lesson, words };
 }
 
 export async function reviewWord(
@@ -208,7 +220,8 @@ export async function reviewWord(
   lessonId: string,
   lemma: string,
   status: "known" | "learning",
-  translation?: string
+  translation?: string,
+  occurrenceCount = 1
 ): Promise<void> {
   const supabase = createServiceClient();
 
@@ -222,20 +235,46 @@ export async function reviewWord(
   const payload = {
     status,
     updated_at: new Date().toISOString(),
+    source_lesson_id: lessonId,
     ...(translation !== undefined ? { translation: translation || null } : {}),
   };
 
+  let wordId: string;
+
   if (existing) {
-    await supabase.from("words").update(payload).eq("id", existing.id);
+    const { data: updated, error } = await supabase
+      .from("words")
+      .update(payload)
+      .eq("id", existing.id)
+      .select("id")
+      .single();
+    if (error || !updated) throw error ?? new Error("Failed to update word");
+    wordId = updated.id;
   } else {
-    await supabase.from("words").insert({
-      user_id: userId,
-      lemma,
-      status,
-      source_lesson_id: lessonId,
-      translation: translation || null,
-    });
+    const { data: inserted, error } = await supabase
+      .from("words")
+      .insert({
+        user_id: userId,
+        lemma,
+        status,
+        source_lesson_id: lessonId,
+        translation: translation || null,
+      })
+      .select("id")
+      .single();
+    if (error || !inserted) throw error ?? new Error("Failed to add word");
+    wordId = inserted.id;
   }
+
+  const { error: linkError } = await supabase.from("lesson_words").upsert(
+    {
+      lesson_id: lessonId,
+      word_id: wordId,
+      occurrence_count: occurrenceCount,
+    },
+    { onConflict: "lesson_id,word_id" }
+  );
+  if (linkError) throw linkError;
 }
 
 export async function markLessonReviewed(
@@ -370,4 +409,32 @@ export async function addStretchWordsAsLearning(
       });
     }
   }
+}
+
+export async function resetUserData(userId: string): Promise<void> {
+  const supabase = createServiceClient();
+
+  const { error: trainingError } = await supabase
+    .from("training_results")
+    .delete()
+    .eq("user_id", userId);
+  if (trainingError) throw trainingError;
+
+  const { error: storiesError } = await supabase
+    .from("stories")
+    .delete()
+    .eq("user_id", userId);
+  if (storiesError) throw storiesError;
+
+  const { error: lessonsError } = await supabase
+    .from("lessons")
+    .delete()
+    .eq("user_id", userId);
+  if (lessonsError) throw lessonsError;
+
+  const { error: wordsError } = await supabase
+    .from("words")
+    .delete()
+    .eq("user_id", userId);
+  if (wordsError) throw wordsError;
 }
