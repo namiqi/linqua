@@ -1,4 +1,4 @@
-export const STORY_UNLOCK_THRESHOLD = 500;
+export const STORY_UNLOCK_THRESHOLD = 0;
 
 export const USER_ID_COOKIE = "linqua_user_id";
 

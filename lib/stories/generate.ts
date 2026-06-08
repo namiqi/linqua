@@ -33,7 +33,7 @@ function buildStoryPrompt(
   length: "short" | "medium",
   maxStretchWords: number
 ): string {
-  const wordList = knownWords.map((w) => w.lemma).slice(0, 500);
+  const wordList = knownWords.map((w) => w.lemma);
   const lengthGuide =
     length === "short"
       ? "about 150-250 Russian words"
@@ -151,6 +151,8 @@ export async function generateStory(
 }
 
 export async function checkStoriesUnlocked(userId: string): Promise<boolean> {
+  if (STORY_UNLOCK_THRESHOLD === 0) return true;
+
   const supabase = createServiceClient();
   const { count } = await supabase
     .from("words")

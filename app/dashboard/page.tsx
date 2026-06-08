@@ -4,6 +4,7 @@ import { getDashboardStats, getLessons } from "@/lib/db";
 import { STORY_UNLOCK_THRESHOLD } from "@/lib/constants";
 import { PageHeader, StatCard, ProgressBar, Button } from "@/components/ui";
 import { ResetDataButton } from "./reset-button";
+import { SeedVocabButton } from "./seed-vocab-button";
 
 export default async function DashboardPage() {
   const userId = await requireUserId();
@@ -28,18 +29,20 @@ export default async function DashboardPage() {
           <StatCard label="Lessons" value={stats.lessonCount} />
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <ProgressBar
-            value={stats.knownWords}
-            max={STORY_UNLOCK_THRESHOLD}
-            label="Progress toward story unlock"
-          />
-          <p className="mt-3 text-sm text-slate-600">
-            {stats.storiesUnlocked
-              ? "Stories unlocked! Create graded reading from your known vocabulary."
-              : `${STORY_UNLOCK_THRESHOLD - stats.knownWords} more known words until stories unlock.`}
-          </p>
-        </section>
+        {STORY_UNLOCK_THRESHOLD > 0 && (
+          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <ProgressBar
+              value={stats.knownWords}
+              max={STORY_UNLOCK_THRESHOLD}
+              label="Progress toward story unlock"
+            />
+            <p className="mt-3 text-sm text-slate-600">
+              {stats.storiesUnlocked
+                ? "Stories unlocked! Create graded reading from your known vocabulary."
+                : `${STORY_UNLOCK_THRESHOLD - stats.knownWords} more known words until stories unlock.`}
+            </p>
+          </section>
+        )}
 
         <section className="flex flex-wrap gap-3">
           <Link href="/lessons/new">
@@ -48,15 +51,9 @@ export default async function DashboardPage() {
           <Link href="/train">
             <Button variant="secondary">Train vocab</Button>
           </Link>
-          {stats.storiesUnlocked ? (
-            <Link href="/stories">
-              <Button variant="secondary">Stories</Button>
-            </Link>
-          ) : (
-            <Button variant="secondary" disabled title="Unlock at 500 known words">
-              Stories (locked)
-            </Button>
-          )}
+          <Link href="/stories">
+            <Button variant="secondary">Stories</Button>
+          </Link>
           <Link href="/vocab">
             <Button variant="secondary">View vocab</Button>
           </Link>
@@ -92,6 +89,7 @@ export default async function DashboardPage() {
           )}
         </section>
 
+        <SeedVocabButton />
         <ResetDataButton />
       </main>
     </div>

@@ -14,6 +14,7 @@ import {
   getLessonExtractedWords,
   isMissingExtractedWordsColumn,
 } from "./errors";
+import { INITIAL_VOCAB } from "./seed/initial-vocab";
 
 const BATCH_SIZE = 200;
 
@@ -42,7 +43,8 @@ export async function getDashboardStats(userId: string): Promise<DashboardStats>
     knownWords,
     learningWords,
     lessonCount: lessonsResult.count ?? 0,
-    storiesUnlocked: knownWords >= STORY_UNLOCK_THRESHOLD,
+    storiesUnlocked:
+      STORY_UNLOCK_THRESHOLD === 0 || knownWords >= STORY_UNLOCK_THRESHOLD,
   };
 }
 
@@ -420,4 +422,31 @@ export async function resetUserData(userId: string): Promise<void> {
     .delete()
     .eq("user_id", userId);
   if (wordsError) throw wordsError;
+}
+
+export async function seedInitialVocab(userId: string): Promise<number> {
+  const supabase = createServiceClient();
+
+  const seen = new Set<string>();
+  const rows = INITIAL_VOCAB.filter(({ lemma }) => {
+    const key = lemma.toLowerCase().trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map(({ lemma, translation }) => ({
+    user_id: userId,
+    lemma: lemma.toLowerCase().trim(),
+    translation,
+    status: "known" as const,
+    updated_at: new Date().toISOString(),
+  }));
+
+  for (const batch of chunk(rows, BATCH_SIZE)) {
+    const { error } = await supabase.from("words").upsert(batch, {
+      onConflict: "user_id,lemma",
+    });
+    if (error) throw error;
+  }
+
+  return rows.length;
 }

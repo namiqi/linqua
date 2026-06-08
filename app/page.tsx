@@ -48,7 +48,7 @@ export default function HomePage() {
             </li>
             <li className="flex gap-3">
               <span className="text-indigo-500">3.</span>
-              Read stories — unlocked after 500 known words
+              Read stories — graded reading from your known vocabulary
             </li>
           </ul>
 
