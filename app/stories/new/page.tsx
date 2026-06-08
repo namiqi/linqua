@@ -80,7 +80,11 @@ export default function NewStoryPage() {
             Uses Gemini if GEMINI_API_KEY is set; otherwise generates a simple template story.
           </p>
 
-          {error && <p className="text-sm text-rose-600">{error}</p>}
+          {error && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+              {error}
+            </div>
+          )}
 
           <div className="flex gap-3">
             <Button onClick={handleGenerate} disabled={loading}>
