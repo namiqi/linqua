@@ -12,13 +12,12 @@ export async function markWordAction(
 ) {
   const userId = await requireUserId();
   await reviewWord(userId, lessonId, lemma, status, translation);
-  revalidatePath(`/lessons/${lessonId}/review`);
-  revalidatePath("/dashboard");
-  revalidatePath("/vocab");
 }
 
 export async function finishReviewAction(lessonId: string) {
   const userId = await requireUserId();
   await markLessonReviewed(userId, lessonId);
+  revalidatePath(`/lessons/${lessonId}/review`);
   revalidatePath("/dashboard");
+  revalidatePath("/vocab");
 }
