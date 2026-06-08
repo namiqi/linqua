@@ -54,6 +54,8 @@ export default async function StoriesPage() {
                     <h3 className="font-semibold text-slate-900">{story.title}</h3>
                     <p className="mt-1 text-sm text-slate-500">
                       {new Date(story.created_at).toLocaleDateString()}
+                      {story.status === "generating" && " · Writing…"}
+                      {story.status === "failed" && " · Failed"}
                       {story.known_word_pct != null &&
                         ` · ${story.known_word_pct}% familiar`}
                     </p>

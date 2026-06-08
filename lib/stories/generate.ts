@@ -21,10 +21,12 @@ export interface StoryCoverage {
 const CYRILLIC_WORD = /[\u0400-\u04FF]+/gu;
 
 const DEFAULT_GEMINI_MODELS = [
-  "gemini-2.5-flash",
   "gemini-2.0-flash-lite",
+  "gemini-2.5-flash",
   "gemini-1.5-flash",
 ];
+
+const PROMPT_VOCAB_LIMIT = 80;
 
 function extractStoryWords(text: string): string[] {
   return (text.match(CYRILLIC_WORD) ?? []).map((w) => w.toLowerCase());
@@ -119,10 +121,12 @@ function buildStoryPrompt(
   maxStretchWords: number
 ): string {
   const wordList = knownWords.map((w) => w.lemma);
+  const shuffled = [...wordList].sort(() => Math.random() - 0.5);
+  const promptWords = shuffled.slice(0, PROMPT_VOCAB_LIMIT);
   const lengthGuide =
     length === "short"
-      ? "about 80-120 Russian words"
-      : "about 150-220 Russian words";
+      ? "about 50-80 Russian words"
+      : "about 100-140 Russian words";
 
   return `You are a Russian language tutor creating graded reader stories.
 
@@ -135,8 +139,8 @@ STRICT VOCABULARY RULES:
 - Do NOT use any other words. If you need a word not in the list, it must be one of your ${maxStretchWords} stretch_words.
 - stretch_words must contain ONLY genuinely new words not in the vocabulary list. Maximum ${maxStretchWords} items.
 
-Learner vocabulary (${wordList.length} words, use any natural form):
-${wordList.slice(0, 200).join(", ")}${wordList.length > 200 ? "…" : ""}
+Learner vocabulary (sample of ${wordList.length} words, use any natural form):
+${promptWords.join(", ")}
 
 Return JSON only:
 {"title": "...", "content_ru": "...", "stretch_words": ["word1", "word2"]}`;
@@ -193,7 +197,8 @@ async function callGeminiModel(
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 0.7,
+          temperature: 0.6,
+          maxOutputTokens: 1024,
           responseMimeType: "application/json",
         },
       }),

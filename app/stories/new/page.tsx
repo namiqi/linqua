@@ -23,7 +23,7 @@ export default function NewStoryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ length, maxStretchWords, markStretchAsNew }),
       });
-      const data = await readJsonResponse<{ id?: string; error?: string }>(res);
+      const data = await readJsonResponse<{ id?: string; status?: string; error?: string }>(res);
       if (!res.ok) throw new Error(data.error ?? "Failed to generate");
       if (!data.id) throw new Error("Story was created but no ID was returned");
       router.push(`/stories/${data.id}`);
@@ -79,7 +79,7 @@ export default function NewStoryPage() {
           </label>
 
           <p className="text-sm text-slate-500">
-            Uses Gemini if GEMINI_API_KEY is set; otherwise generates a simple template story.
+            Opens the story page immediately; Gemini writes in the background (15–30s).
           </p>
 
           {error && (

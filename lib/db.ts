@@ -321,6 +321,7 @@ export async function getStories(userId: string): Promise<Story[]> {
   return (data ?? []).map((s) => ({
     ...s,
     stretch_words: (s.stretch_words as string[]) ?? [],
+    status: (s.status as Story["status"]) ?? "ready",
   })) as Story[];
 }
 
@@ -338,10 +339,96 @@ export async function getStory(
 
   if (error) throw error;
   if (!data) return null;
+  let status = (data.status as Story["status"]) ?? "ready";
+  if (
+    !data.status &&
+    data.title.startsWith("Generating") &&
+    !data.content_ru
+  ) {
+    status = "generating";
+  }
   return {
     ...data,
     stretch_words: (data.stretch_words as string[]) ?? [],
+    status,
   } as Story;
+}
+
+export async function createGeneratingStory(userId: string): Promise<string> {
+  const supabase = createServiceClient();
+  let result = await supabase
+    .from("stories")
+    .insert({
+      user_id: userId,
+      title: "Generating your story…",
+      content_ru: "",
+      known_word_pct: null,
+      stretch_words: [],
+      status: "generating",
+    })
+    .select("id")
+    .single();
+
+  if (result.error?.message?.includes("status")) {
+    result = await supabase
+      .from("stories")
+      .insert({
+        user_id: userId,
+        title: "Generating your story…",
+        content_ru: "",
+        known_word_pct: null,
+        stretch_words: [],
+      })
+      .select("id")
+      .single();
+  }
+
+  if (result.error || !result.data) {
+    throw result.error ?? new Error("Failed to create story");
+  }
+  return result.data.id;
+}
+
+export async function updateStory(
+  storyId: string,
+  userId: string,
+  update: {
+    title: string;
+    contentRu: string;
+    knownWordPct: number;
+    stretchWords: string[];
+    status: Story["status"];
+  }
+): Promise<void> {
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("stories")
+    .update({
+      title: update.title,
+      content_ru: update.contentRu,
+      known_word_pct: update.knownWordPct,
+      stretch_words: update.stretchWords,
+      status: update.status,
+    })
+    .eq("id", storyId)
+    .eq("user_id", userId);
+
+  if (error?.message?.includes("status")) {
+    const { error: retryError } = await supabase
+      .from("stories")
+      .update({
+        title: update.title,
+        content_ru: update.contentRu,
+        known_word_pct: update.knownWordPct,
+        stretch_words: update.stretchWords,
+      })
+      .eq("id", storyId)
+      .eq("user_id", userId);
+    if (retryError) throw retryError;
+    return;
+  }
+
+  if (error) throw error;
 }
 
 export async function createStory(
@@ -360,6 +447,7 @@ export async function createStory(
       content_ru: contentRu,
       known_word_pct: knownWordPct,
       stretch_words: stretchWords,
+      status: "ready",
     })
     .select("id")
     .single();

@@ -32,6 +32,8 @@ export interface LessonWord {
   occurrence_count: number;
 }
 
+export type StoryStatus = "generating" | "ready" | "failed";
+
 export interface Story {
   id: string;
   user_id: string;
@@ -39,6 +41,7 @@ export interface Story {
   content_ru: string;
   known_word_pct: number | null;
   stretch_words: string[];
+  status: StoryStatus;
   created_at: string;
 }
 
