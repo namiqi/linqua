@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader, Button } from "@/components/ui";
+import { readJsonResponse } from "@/lib/http";
 
 export default function NewStoryPage() {
   const router = useRouter();
@@ -22,8 +23,9 @@ export default function NewStoryPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ length, maxStretchWords, markStretchAsNew }),
       });
-      const data = await res.json();
+      const data = await readJsonResponse<{ id?: string; error?: string }>(res);
       if (!res.ok) throw new Error(data.error ?? "Failed to generate");
+      if (!data.id) throw new Error("Story was created but no ID was returned");
       router.push(`/stories/${data.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");

@@ -3,6 +3,8 @@ import { getUserId } from "@/lib/auth";
 import { getWords, createStory, addStretchWordsAsLearning } from "@/lib/db";
 import { checkStoriesUnlocked, generateStory } from "@/lib/stories/generate";
 
+export const maxDuration = 26;
+
 export async function POST(request: NextRequest) {
   const userId = await getUserId();
   if (!userId) {

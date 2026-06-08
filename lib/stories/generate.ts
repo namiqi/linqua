@@ -1,4 +1,5 @@
 import { STORY_UNLOCK_THRESHOLD } from "../constants";
+import { isHtmlResponse, parseJsonText } from "../http";
 import { createServiceClient } from "../supabase/server";
 import type { Word } from "../types";
 
@@ -134,8 +135,8 @@ STRICT VOCABULARY RULES:
 - Do NOT use any other words. If you need a word not in the list, it must be one of your ${maxStretchWords} stretch_words.
 - stretch_words must contain ONLY genuinely new words not in the vocabulary list. Maximum ${maxStretchWords} items.
 
-Learner vocabulary (${wordList.length} words):
-${wordList.join(", ")}
+Learner vocabulary (${wordList.length} words, use any natural form):
+${wordList.slice(0, 200).join(", ")}${wordList.length > 200 ? "…" : ""}
 
 Return JSON only:
 {"title": "...", "content_ru": "...", "stretch_words": ["word1", "word2"]}`;
@@ -167,8 +168,11 @@ export function formatGeminiError(status: number, body: string): string {
   if (isQuotaError(status, body)) {
     return "Gemini free-tier quota exceeded. Wait a minute and try again, set GEMINI_MODEL=gemini-2.0-flash-lite in Netlify, or enable billing in Google AI Studio.";
   }
+  if (isHtmlResponse(body)) {
+    return "Gemini returned an unexpected HTML response. Check your GEMINI_API_KEY.";
+  }
   try {
-    const parsed = JSON.parse(body) as { error?: { message?: string } };
+    const parsed = parseJsonText<{ error?: { message?: string } }>(body, "Gemini");
     if (parsed.error?.message) return parsed.error.message;
   } catch {
     // use raw body below
@@ -207,9 +211,13 @@ async function callGeminiModel(
     throw err;
   }
 
-  const data = JSON.parse(body) as {
+  if (isHtmlResponse(body)) {
+    throw new Error("Gemini returned an HTML error page. Check your API key and model name.");
+  }
+
+  const data = parseJsonText<{
     candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
+  }>(body, "Gemini");
   return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 }
 
@@ -299,15 +307,21 @@ export async function generateStory(
     try {
       return await generateStoryWithGemini(knownWords, length, maxStretchWords);
     } catch (error) {
+      const message = error instanceof Error ? error.message : "";
       const isQuota =
-        error instanceof Error &&
-        (error.message.includes("quota") ||
-          error.message.includes("RESOURCE_EXHAUSTED"));
-      if (isQuota) {
+        message.includes("quota") || message.includes("RESOURCE_EXHAUSTED");
+      const isRecoverable =
+        isQuota ||
+        message.includes("invalid JSON") ||
+        message.includes("HTML") ||
+        message.includes("timed out");
+
+      if (isRecoverable) {
         const fallback = await generateFallbackStory(knownWords, length);
+        const suffix = isQuota ? "Gemini quota" : "fallback";
         return {
           ...fallback,
-          title: `${fallback.title} (Gemini quota — template fallback)`,
+          title: `${fallback.title} (${suffix})`,
         };
       }
       throw error;
