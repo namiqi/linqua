@@ -179,13 +179,22 @@ function getGeminiModels(): string[] {
   return [...new Set(models)];
 }
 
-function isQuotaError(status: number, body: string): boolean {
-  return status === 429 || body.includes("RESOURCE_EXHAUSTED") || body.includes("quota");
+function isCapacityError(status: number, body: string): boolean {
+  const lower = body.toLowerCase();
+  return (
+    status === 429 ||
+    status === 503 ||
+    lower.includes("resource_exhausted") ||
+    lower.includes("quota") ||
+    lower.includes("high demand") ||
+    lower.includes("overloaded") ||
+    lower.includes("unavailable")
+  );
 }
 
 export function formatGeminiError(status: number, body: string): string {
-  if (isQuotaError(status, body)) {
-    return "Gemini free-tier quota exceeded. Wait a minute and try again, set GEMINI_MODEL=gemini-2.0-flash-lite in Netlify, or enable billing in Google AI Studio.";
+  if (isCapacityError(status, body)) {
+    return "Gemini is busy or quota-limited. Wait a minute and try again, set GEMINI_MODEL=gemini-2.0-flash-lite in Netlify, or enable billing in Google AI Studio.";
   }
   if (isHtmlResponse(body)) {
     return "Gemini returned an unexpected HTML response. Check your GEMINI_API_KEY.";
@@ -252,7 +261,7 @@ async function callGeminiModel(
       isQuota: boolean;
     };
     err.status = response.status;
-    err.isQuota = isQuotaError(response.status, body);
+    err.isQuota = isCapacityError(response.status, body);
     throw err;
   }
 
@@ -359,6 +368,9 @@ function isRecoverableStoryError(error: unknown): boolean {
     return (
       msg.includes("quota") ||
       msg.includes("resource_exhausted") ||
+      msg.includes("high demand") ||
+      msg.includes("overloaded") ||
+      msg.includes("unavailable") ||
       msg.includes("invalid json") ||
       msg.includes("html") ||
       msg.includes("timed out") ||
@@ -380,7 +392,13 @@ export async function generateStory(
       if (isRecoverableStoryError(error)) {
         const fallback = await generateFallbackStory(knownWords, length);
         const message = error instanceof Error ? error.message.toLowerCase() : "";
-        const suffix = message.includes("quota") ? "Gemini quota" : "template fallback";
+        const suffix =
+          message.includes("quota") ||
+          message.includes("high demand") ||
+          message.includes("overloaded") ||
+          message.includes("unavailable")
+            ? "Gemini busy"
+            : "template fallback";
         return {
           ...fallback,
           title: `${fallback.title} (${suffix})`,
