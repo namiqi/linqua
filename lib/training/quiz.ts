@@ -1,5 +1,10 @@
 import type { DrillDirection, WordStatus } from "../constants";
 import type { Word } from "../types";
+import {
+  canClaimAsKnown,
+  daysUntilClaimable,
+  type WordDrillStats,
+} from "./promotion";
 
 export type QuizDirection = "en_to_ru" | "ru_to_en";
 
@@ -9,6 +14,12 @@ export interface QuizItem {
   expected: string;
   direction: QuizDirection;
   lemma: string;
+  status: "known" | "learning";
+  learningStartedAt: string | null;
+  drillAttempts: number;
+  drillCorrect: number;
+  canClaimKnown: boolean;
+  daysUntilClaim: number;
 }
 
 export function normalizeAnswer(value: string): string {
@@ -54,7 +65,8 @@ export function pickDirection(direction: DrillDirection): QuizDirection {
 export function buildQuizItems(
   words: Word[],
   direction: DrillDirection,
-  limit: number
+  limit: number,
+  drillStats: Map<string, WordDrillStats> = new Map()
 ): QuizItem[] {
   const eligible = words.filter((w) => {
     if (direction === "en_to_ru" || direction === "random") {
@@ -69,6 +81,15 @@ export function buildQuizItems(
 
   for (const word of selected) {
     const quizDirection = pickDirection(direction);
+    const stats = drillStats.get(word.id) ?? { attempts: 0, correct: 0 };
+    const meta = {
+      status: word.status,
+      learningStartedAt: word.learning_started_at,
+      drillAttempts: stats.attempts,
+      drillCorrect: stats.correct,
+      canClaimKnown: canClaimAsKnown(word.status, word.learning_started_at),
+      daysUntilClaim: daysUntilClaimable(word.learning_started_at),
+    };
     if (quizDirection === "en_to_ru") {
       if (!word.translation?.trim()) continue;
       items.push({
@@ -77,6 +98,7 @@ export function buildQuizItems(
         expected: word.lemma,
         direction: quizDirection,
         lemma: word.lemma,
+        ...meta,
       });
     } else {
       items.push({
@@ -85,6 +107,7 @@ export function buildQuizItems(
         expected: word.translation ?? "(unknown)",
         direction: quizDirection,
         lemma: word.lemma,
+        ...meta,
       });
     }
   }

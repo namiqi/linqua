@@ -1,5 +1,6 @@
 import { requireUserId } from "@/lib/auth";
-import { getWords } from "@/lib/db";
+import { getWords, getTrainingStatsForWords } from "@/lib/db";
+import { daysUntilClaimable } from "@/lib/training/promotion";
 import { PageHeader } from "@/components/ui";
 
 export default async function VocabPage({
@@ -11,6 +12,8 @@ export default async function VocabPage({
   const { status } = await searchParams;
   const filter = (status as "known" | "learning" | "all") ?? "all";
   const words = await getWords(userId, filter);
+  const learningIds = words.filter((w) => w.status === "learning").map((w) => w.id);
+  const drillStats = await getTrainingStatsForWords(userId, learningIds);
 
   const tabs = [
     { label: "All", value: "all" },
@@ -55,10 +58,13 @@ export default async function VocabPage({
                   <th className="px-4 py-3 font-medium text-slate-700">Russian</th>
                   <th className="px-4 py-3 font-medium text-slate-700">English</th>
                   <th className="px-4 py-3 font-medium text-slate-700">Status</th>
+                  <th className="px-4 py-3 font-medium text-slate-700">Drill</th>
                 </tr>
               </thead>
               <tbody>
-                {words.map((word) => (
+                {words.map((word) => {
+                  const stats = drillStats.get(word.id);
+                  return (
                   <tr key={word.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-3 font-medium text-slate-900">{word.lemma}</td>
                     <td className="px-4 py-3 text-slate-600">
@@ -75,8 +81,28 @@ export default async function VocabPage({
                         {word.status}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-slate-500">
+                      {word.status === "learning" ? (
+                        <span className="text-xs">
+                          {stats
+                            ? `${stats.correct}/${stats.attempts} correct`
+                            : "0/0 correct"}
+                          {word.learning_started_at && (
+                            <>
+                              {" · "}
+                              {daysUntilClaimable(word.learning_started_at) > 0
+                                ? `claim in ${daysUntilClaimable(word.learning_started_at)}d`
+                                : "ready to claim"}
+                            </>
+                          )}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

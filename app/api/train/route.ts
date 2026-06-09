@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
-import { getWords, saveTrainingResult } from "@/lib/db";
+import { getWords, getTrainingStatsForWords, saveTrainingResult } from "@/lib/db";
 import {
   buildQuizItems,
   checkAnswer,
@@ -21,7 +21,11 @@ export async function GET(request: NextRequest) {
 
   const words = await getWords(userId);
   const filtered = filterWordsForTraining(words, includeKnown);
-  const items = buildQuizItems(filtered, direction, limit);
+  const drillStats = await getTrainingStatsForWords(
+    userId,
+    filtered.map((w) => w.id)
+  );
+  const items = buildQuizItems(filtered, direction, limit, drillStats);
 
   return NextResponse.json({ items, totalAvailable: filtered.length });
 }
@@ -40,7 +44,7 @@ export async function POST(request: NextRequest) {
   }
 
   const correct = checkAnswer(expected, answer);
-  await saveTrainingResult(userId, wordId, direction, correct);
+  const drillStats = await saveTrainingResult(userId, wordId, direction, correct);
 
-  return NextResponse.json({ correct, expected });
+  return NextResponse.json({ correct, expected, drillStats });
 }

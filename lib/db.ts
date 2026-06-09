@@ -7,8 +7,10 @@ import type {
   ReviewWord,
   Story,
   Word,
+  PracticeSentence,
 } from "./types";
 import { extractWords } from "./russian/extract";
+import { canClaimAsKnown } from "./training/promotion";
 import {
   formatDbError,
   getLessonExtractedWords,
@@ -43,8 +45,7 @@ export async function getDashboardStats(userId: string): Promise<DashboardStats>
     knownWords,
     learningWords,
     lessonCount: lessonsResult.count ?? 0,
-    storiesUnlocked:
-      STORY_UNLOCK_THRESHOLD === 0 || knownWords >= STORY_UNLOCK_THRESHOLD,
+    storiesUnlocked: knownWords >= STORY_UNLOCK_THRESHOLD,
   };
 }
 
@@ -217,10 +218,17 @@ export async function reviewWord(
     .eq("lemma", lemma)
     .maybeSingle();
 
+  const now = new Date().toISOString();
+  const learningStartedAt =
+    status === "learning"
+      ? (existing?.learning_started_at ?? now)
+      : null;
+
   const payload = {
     status,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
     source_lesson_id: lessonId,
+    learning_started_at: learningStartedAt,
     ...(translation !== undefined ? { translation: translation || null } : {}),
   };
 
@@ -244,6 +252,7 @@ export async function reviewWord(
         status,
         source_lesson_id: lessonId,
         translation: translation || null,
+        learning_started_at: status === "learning" ? now : null,
       })
       .select("id")
       .single();
@@ -291,7 +300,10 @@ export async function getWords(
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []) as Word[];
+  return (data ?? []).map((row) => ({
+    ...(row as Word),
+    learning_started_at: (row as Word).learning_started_at ?? null,
+  }));
 }
 
 export async function saveTrainingResult(
@@ -299,7 +311,7 @@ export async function saveTrainingResult(
   wordId: string,
   direction: "en_to_ru" | "ru_to_en",
   correct: boolean
-): Promise<void> {
+): Promise<{ attempts: number; correct: number }> {
   const supabase = createServiceClient();
   await supabase.from("training_results").insert({
     user_id: userId,
@@ -307,6 +319,78 @@ export async function saveTrainingResult(
     direction,
     correct,
   });
+
+  const { data, error } = await supabase
+    .from("training_results")
+    .select("correct")
+    .eq("user_id", userId)
+    .eq("word_id", wordId);
+
+  if (error) throw error;
+  const attempts = data?.length ?? 0;
+  const correctCount = data?.filter((r) => r.correct).length ?? 0;
+  return { attempts, correct: correctCount };
+}
+
+export async function getTrainingStatsForWords(
+  userId: string,
+  wordIds: string[]
+): Promise<Map<string, { attempts: number; correct: number }>> {
+  const stats = new Map<string, { attempts: number; correct: number }>();
+  if (wordIds.length === 0) return stats;
+
+  const supabase = createServiceClient();
+  for (const idBatch of chunk(wordIds, BATCH_SIZE)) {
+    const { data, error } = await supabase
+      .from("training_results")
+      .select("word_id, correct")
+      .eq("user_id", userId)
+      .in("word_id", idBatch);
+
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const current = stats.get(row.word_id) ?? { attempts: 0, correct: 0 };
+      current.attempts++;
+      if (row.correct) current.correct++;
+      stats.set(row.word_id, current);
+    }
+  }
+
+  return stats;
+}
+
+export async function promoteWordToKnown(
+  userId: string,
+  wordId: string
+): Promise<void> {
+  const supabase = createServiceClient();
+  const { data: word, error: fetchError } = await supabase
+    .from("words")
+    .select("status, learning_started_at")
+    .eq("user_id", userId)
+    .eq("id", wordId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!word) throw new Error("Word not found");
+  if (word.status !== "learning") {
+    throw new Error("Only learning words can be promoted");
+  }
+
+  if (!canClaimAsKnown(word.status, word.learning_started_at)) {
+    throw new Error("This word is not ready to claim as known yet");
+  }
+
+  const { error } = await supabase
+    .from("words")
+    .update({
+      status: "known",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .eq("id", wordId);
+
+  if (error) throw error;
 }
 
 export async function getStories(userId: string): Promise<Story[]> {
@@ -464,7 +548,7 @@ export async function addStretchWordsAsLearning(
   for (const lemma of lemmas) {
     const { data: existing } = await supabase
       .from("words")
-      .select("id")
+      .select("id, learning_started_at")
       .eq("user_id", userId)
       .eq("lemma", lemma)
       .maybeSingle();
@@ -472,20 +556,126 @@ export async function addStretchWordsAsLearning(
     if (existing) {
       await supabase
         .from("words")
-        .update({ status: "learning", updated_at: new Date().toISOString() })
+        .update({
+          status: "learning",
+          learning_started_at: existing.learning_started_at ?? new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", existing.id);
     } else {
       await supabase.from("words").insert({
         user_id: userId,
         lemma,
         status: "learning",
+        learning_started_at: new Date().toISOString(),
       });
     }
   }
 }
 
+export async function getPracticeSentences(userId: string): Promise<PracticeSentence[]> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("practice_sentences")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []) as PracticeSentence[];
+}
+
+export async function addPracticeSentence(
+  userId: string,
+  promptEn: string,
+  answerRu: string,
+  sourceLessonId?: string
+): Promise<PracticeSentence> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("practice_sentences")
+    .insert({
+      user_id: userId,
+      prompt_en: promptEn.trim(),
+      answer_ru: answerRu.trim(),
+      source_lesson_id: sourceLessonId ?? null,
+    })
+    .select("*")
+    .single();
+
+  if (error || !data) throw error ?? new Error("Failed to add phrase");
+  return data as PracticeSentence;
+}
+
+export async function getPhraseDrillStatsForSentences(
+  userId: string,
+  sentenceIds: string[]
+): Promise<Map<string, { attempts: number; correct: number }>> {
+  const stats = new Map<string, { attempts: number; correct: number }>();
+  if (sentenceIds.length === 0) return stats;
+
+  const supabase = createServiceClient();
+  for (const idBatch of chunk(sentenceIds, BATCH_SIZE)) {
+    const { data, error } = await supabase
+      .from("phrase_drill_results")
+      .select("sentence_id, correct")
+      .eq("user_id", userId)
+      .in("sentence_id", idBatch);
+
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const current = stats.get(row.sentence_id) ?? { attempts: 0, correct: 0 };
+      current.attempts++;
+      if (row.correct) current.correct++;
+      stats.set(row.sentence_id, current);
+    }
+  }
+
+  return stats;
+}
+
+export async function savePhraseDrillResult(
+  userId: string,
+  sentenceId: string,
+  correct: boolean
+): Promise<{ attempts: number; correct: number }> {
+  const supabase = createServiceClient();
+  await supabase.from("phrase_drill_results").insert({
+    user_id: userId,
+    sentence_id: sentenceId,
+    correct,
+  });
+
+  const { data, error } = await supabase
+    .from("phrase_drill_results")
+    .select("correct")
+    .eq("user_id", userId)
+    .eq("sentence_id", sentenceId);
+
+  if (error) throw error;
+  const attempts = data?.length ?? 0;
+  const correctCount = data?.filter((r) => r.correct).length ?? 0;
+  return { attempts, correct: correctCount };
+}
+
 export async function resetUserData(userId: string): Promise<void> {
   const supabase = createServiceClient();
+
+  const { error: phraseResultsError } = await supabase
+    .from("phrase_drill_results")
+    .delete()
+    .eq("user_id", userId);
+  if (phraseResultsError && !phraseResultsError.message.includes("does not exist")) {
+    throw phraseResultsError;
+  }
+
+  const { error: phrasesError } = await supabase
+    .from("practice_sentences")
+    .delete()
+    .eq("user_id", userId);
+  if (phrasesError && !phrasesError.message.includes("does not exist")) {
+    throw phrasesError;
+  }
 
   const { error: trainingError } = await supabase
     .from("training_results")

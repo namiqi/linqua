@@ -22,6 +22,7 @@ export interface Word {
   translation: string | null;
   status: WordStatus;
   source_lesson_id: string | null;
+  learning_started_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -64,4 +65,13 @@ export interface ReviewWord {
   occurrence_count: number;
   existingWord: Word | null;
   skipped: boolean;
+}
+
+export interface PracticeSentence {
+  id: string;
+  user_id: string;
+  prompt_en: string;
+  answer_ru: string;
+  source_lesson_id: string | null;
+  created_at: string;
 }

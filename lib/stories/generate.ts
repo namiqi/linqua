@@ -438,8 +438,6 @@ export async function generateStory(
 }
 
 export async function checkStoriesUnlocked(userId: string): Promise<boolean> {
-  if (STORY_UNLOCK_THRESHOLD === 0) return true;
-
   const supabase = createServiceClient();
   const { count } = await supabase
     .from("words")
