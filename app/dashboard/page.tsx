@@ -5,6 +5,7 @@ import { STORY_UNLOCK_THRESHOLD } from "@/lib/constants";
 import { PageHeader, StatCard, ProgressBar, Button } from "@/components/ui";
 import { ResetDataButton } from "./reset-button";
 import { SeedVocabButton } from "./seed-vocab-button";
+import { LessonList } from "./lesson-list";
 
 export default async function DashboardPage() {
   const userId = await requireUserId();
@@ -66,26 +67,7 @@ export default async function DashboardPage() {
               No lessons yet. Paste your first transcript to start building vocab.
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {lessons.map((lesson) => (
-                <Link
-                  key={lesson.id}
-                  href={`/lessons/${lesson.id}/review`}
-                  className="block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
-                >
-                  <h3 className="font-semibold text-slate-900">{lesson.name}</h3>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {new Date(lesson.created_at).toLocaleDateString()} · {lesson.wordCount} words
-                    {lesson.newCount > 0 && ` · ${lesson.newCount} learning`}
-                  </p>
-                  {!lesson.reviewed_at && lesson.reviewedCount < lesson.wordCount && (
-                    <span className="mt-3 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                      Review pending
-                    </span>
-                  )}
-                </Link>
-              ))}
-            </div>
+            <LessonList lessons={lessons} />
           )}
         </section>
 

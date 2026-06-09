@@ -283,6 +283,35 @@ export async function markLessonReviewed(
     .eq("user_id", userId);
 }
 
+export async function updateLessonName(
+  userId: string,
+  lessonId: string,
+  name: string
+): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Lesson name is required");
+
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("lessons")
+    .update({ name: trimmed })
+    .eq("id", lessonId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+}
+
+export async function deleteLesson(userId: string, lessonId: string): Promise<void> {
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("lessons")
+    .delete()
+    .eq("id", lessonId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+}
+
 export async function getWords(
   userId: string,
   status?: "known" | "learning" | "all"
@@ -538,6 +567,35 @@ export async function createStory(
 
   if (error || !data) throw error ?? new Error("Failed to create story");
   return data.id;
+}
+
+export async function updateStoryTitle(
+  userId: string,
+  storyId: string,
+  title: string
+): Promise<void> {
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error("Story title is required");
+
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("stories")
+    .update({ title: trimmed })
+    .eq("id", storyId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+}
+
+export async function deleteStory(userId: string, storyId: string): Promise<void> {
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("stories")
+    .delete()
+    .eq("id", storyId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
 }
 
 export async function addStretchWordsAsLearning(
