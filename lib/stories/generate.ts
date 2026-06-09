@@ -26,9 +26,10 @@ export interface StoryCoverage {
 const CYRILLIC_WORD = /[\u0400-\u04FF]+/gu;
 
 const DEFAULT_GEMINI_MODELS = [
-  "gemini-2.0-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash-lite",
+  "gemini-3.5-flash",
   "gemini-2.5-flash",
-  "gemini-1.5-flash",
 ];
 
 const PROMPT_VOCAB_LIMIT = 80;
@@ -192,9 +193,24 @@ function isCapacityError(status: number, body: string): boolean {
   );
 }
 
+function isModelUnavailableError(status: number, body: string): boolean {
+  const lower = body.toLowerCase();
+  return (
+    status === 404 ||
+    lower.includes("not found for api version") ||
+    lower.includes("is not supported for generatecontent") ||
+    lower.includes("model_not_found") ||
+    lower.includes("does not exist")
+  );
+}
+
+function isRetryableApiError(status: number, body: string): boolean {
+  return isCapacityError(status, body) || isModelUnavailableError(status, body);
+}
+
 export function formatGeminiError(status: number, body: string): string {
   if (isCapacityError(status, body)) {
-    return "Gemini is busy or quota-limited. Wait a minute and try again, set GEMINI_MODEL=gemini-2.0-flash-lite in Netlify, or enable billing in Google AI Studio.";
+    return "Gemini is busy or quota-limited. Wait a minute and try again, set GEMINI_MODEL=gemini-3.1-flash-lite in Netlify, or enable billing in Google AI Studio.";
   }
   if (isHtmlResponse(body)) {
     return "Gemini returned an unexpected HTML response. Check your GEMINI_API_KEY.";
@@ -258,10 +274,10 @@ async function callGeminiModel(
   if (!response.ok) {
     const err = new Error(formatGeminiError(response.status, body)) as Error & {
       status: number;
-      isQuota: boolean;
+      isRetryable: boolean;
     };
     err.status = response.status;
-    err.isQuota = isCapacityError(response.status, body);
+    err.isRetryable = isRetryableApiError(response.status, body);
     throw err;
   }
 
@@ -280,8 +296,16 @@ async function callGeminiModel(
 
 function isRetryableGeminiError(error: unknown): boolean {
   if (isParseOrEmptyError(error)) return true;
-  if (error instanceof Error && "isQuota" in error) {
-    return (error as { isQuota?: boolean }).isQuota === true;
+  if (error instanceof Error && "isRetryable" in error) {
+    return (error as { isRetryable?: boolean }).isRetryable === true;
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes("not found for api version") ||
+      msg.includes("is not supported for generatecontent") ||
+      msg.includes("model_not_found")
+    );
   }
   return false;
 }
@@ -371,6 +395,9 @@ function isRecoverableStoryError(error: unknown): boolean {
       msg.includes("high demand") ||
       msg.includes("overloaded") ||
       msg.includes("unavailable") ||
+      msg.includes("not found for api version") ||
+      msg.includes("is not supported for generatecontent") ||
+      msg.includes("model_not_found") ||
       msg.includes("invalid json") ||
       msg.includes("html") ||
       msg.includes("timed out") ||
