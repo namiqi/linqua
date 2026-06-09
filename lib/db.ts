@@ -20,6 +20,7 @@ import {
   getLessonExtractedWords,
   isMissingExtractedWordsColumn,
 } from "./errors";
+import { FOUNDATION_VOCAB_1 } from "./seed/foundation-vocab-1";
 import { INITIAL_VOCAB } from "./seed/initial-vocab";
 
 const BATCH_SIZE = 200;
@@ -1007,6 +1008,60 @@ export async function resetUserData(userId: string): Promise<void> {
     .delete()
     .eq("user_id", userId);
   if (wordsError) throw wordsError;
+}
+
+/** Clears vocabulary and drill/training history. Lessons and stories are kept. */
+export async function resetUserVocab(userId: string): Promise<void> {
+  const supabase = createServiceClient();
+
+  const { error: drillSessionsError } = await supabase
+    .from("drill_sessions")
+    .delete()
+    .eq("user_id", userId);
+  if (drillSessionsError && !drillSessionsError.message.includes("does not exist")) {
+    throw drillSessionsError;
+  }
+
+  const { error: trainingError } = await supabase
+    .from("training_results")
+    .delete()
+    .eq("user_id", userId);
+  if (trainingError) throw trainingError;
+
+  const { error: wordsError } = await supabase
+    .from("words")
+    .delete()
+    .eq("user_id", userId);
+  if (wordsError) throw wordsError;
+}
+
+export async function importFoundationVocabAsLearning(userId: string): Promise<number> {
+  await resetUserVocab(userId);
+
+  const supabase = createServiceClient();
+  const now = new Date().toISOString();
+
+  const seen = new Set<string>();
+  const rows = FOUNDATION_VOCAB_1.filter(({ lemma }) => {
+    const key = lemma.toLowerCase().trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map(({ lemma, translation }) => ({
+    user_id: userId,
+    lemma: lemma.toLowerCase().trim(),
+    translation,
+    status: "learning" as const,
+    learning_started_at: now,
+    updated_at: now,
+  }));
+
+  for (const batch of chunk(rows, BATCH_SIZE)) {
+    const { error } = await supabase.from("words").insert(batch);
+    if (error) throw error;
+  }
+
+  return rows.length;
 }
 
 export async function seedInitialVocab(userId: string): Promise<number> {

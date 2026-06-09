@@ -4,7 +4,7 @@ import { getDashboardStats, getLessons } from "@/lib/db";
 import { STORY_UNLOCK_THRESHOLD } from "@/lib/constants";
 import { PageHeader, StatCard, ProgressBar, Button } from "@/components/ui";
 import { ResetDataButton } from "./reset-button";
-import { SeedVocabButton } from "./seed-vocab-button";
+import { FoundationVocabButton } from "./foundation-vocab-button";
 import { LessonList } from "./lesson-list";
 
 export default async function DashboardPage() {
@@ -71,7 +71,7 @@ export default async function DashboardPage() {
           )}
         </section>
 
-        <SeedVocabButton />
+        <FoundationVocabButton />
         <ResetDataButton />
       </main>
     </div>
