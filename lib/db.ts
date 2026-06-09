@@ -522,6 +522,26 @@ export async function getDrillSessionEntries(
   return (data ?? []) as DrillSessionEntry[];
 }
 
+export async function getTrainingStatsForUser(
+  userId: string
+): Promise<Map<string, { attempts: number; correct: number }>> {
+  const stats = new Map<string, { attempts: number; correct: number }>();
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("training_results")
+    .select("word_id, correct")
+    .eq("user_id", userId);
+
+  if (error) throw error;
+  for (const row of data ?? []) {
+    const current = stats.get(row.word_id) ?? { attempts: 0, correct: 0 };
+    current.attempts++;
+    if (row.correct) current.correct++;
+    stats.set(row.word_id, current);
+  }
+  return stats;
+}
+
 export async function getTrainingStatsForWords(
   userId: string,
   wordIds: string[]

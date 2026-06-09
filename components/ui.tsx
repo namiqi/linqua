@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 interface NavLinkProps {
   href: string;
   children: React.ReactNode;
@@ -8,8 +10,9 @@ interface NavLinkProps {
 
 export function NavLink({ href, children, active }: NavLinkProps) {
   return (
-    <a
+    <Link
       href={href}
+      prefetch
       className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
         active
           ? "bg-indigo-100 text-indigo-800"
@@ -17,7 +20,7 @@ export function NavLink({ href, children, active }: NavLinkProps) {
       }`}
     >
       {children}
-    </a>
+    </Link>
   );
 }
 

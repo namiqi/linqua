@@ -7,9 +7,11 @@ import { updateWordTranslationAction } from "./actions";
 export function EditableTranslation({
   wordId,
   translation,
+  onSaved,
 }: {
   wordId: string;
   translation: string | null;
+  onSaved?: () => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -35,7 +37,8 @@ export function EditableTranslation({
       try {
         await updateWordTranslationAction(wordId, draft);
         setEditing(false);
-        router.refresh();
+        if (onSaved) onSaved();
+        else router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to save");
       }
