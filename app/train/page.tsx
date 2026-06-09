@@ -38,8 +38,34 @@ export default function TrainPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionName, setSessionName] = useState<string | null>(null);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [poolInfo, setPoolInfo] = useState<{
+    total: number;
+    drillable: number;
+    withTranslation: number;
+  } | null>(null);
 
   const current = items[index];
+
+  useEffect(() => {
+    if (phase !== "setup") return;
+    const params = new URLSearchParams({
+      includeKnown: String(drillPool === "all"),
+      limit: "0",
+      direction,
+    });
+    fetch(`/api/train?${params}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.totalAvailable != null) {
+          setPoolInfo({
+            total: data.totalAvailable,
+            drillable: data.drillableCount ?? data.totalAvailable,
+            withTranslation: data.withTranslationCount ?? 0,
+          });
+        }
+      })
+      .catch(() => setPoolInfo(null));
+  }, [phase, drillPool, direction]);
 
   const startDrill = useCallback(async () => {
     setLoading(true);
@@ -229,6 +255,17 @@ export default function TrainPage() {
 
             <p className="text-sm text-slate-500">
               Learning words can be claimed as known after 7 days in the drill.
+              {poolInfo && (
+                <>
+                  {" "}
+                  Pool: {poolInfo.total} word{poolInfo.total === 1 ? "" : "s"}
+                  {direction === "en_to_ru"
+                    ? ` · ${poolInfo.withTranslation} with English (EN→RU only uses these)`
+                    : ` · ${poolInfo.withTranslation} with English`}
+                  {direction !== "en_to_ru" &&
+                    ` · up to ${poolInfo.drillable} in this drill`}
+                </>
+              )}
             </p>
 
             <Button onClick={startDrill} disabled={loading}>

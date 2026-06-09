@@ -68,19 +68,28 @@ export function buildQuizItems(
   limit: number,
   drillStats: Map<string, WordDrillStats> = new Map()
 ): QuizItem[] {
-  const eligible = words.filter((w) => {
-    if (direction === "en_to_ru" || direction === "random") {
-      return w.translation?.trim();
-    }
-    return true;
-  });
-
-  const shuffled = [...eligible].sort(() => Math.random() - 0.5);
-  const selected = limit > 0 ? shuffled.slice(0, limit) : shuffled;
+  const shuffled = [...words].sort(() => Math.random() - 0.5);
   const items: QuizItem[] = [];
 
-  for (const word of selected) {
-    const quizDirection = pickDirection(direction);
+  for (const word of shuffled) {
+    if (limit > 0 && items.length >= limit) break;
+
+    const hasTranslation = Boolean(word.translation?.trim());
+    let quizDirection: QuizDirection;
+
+    if (direction === "en_to_ru") {
+      if (!hasTranslation) continue;
+      quizDirection = "en_to_ru";
+    } else if (direction === "ru_to_en") {
+      quizDirection = "ru_to_en";
+    } else if (hasTranslation) {
+      quizDirection = pickDirection("random");
+    } else {
+      quizDirection = "ru_to_en";
+    }
+
+    if (quizDirection === "en_to_ru" && !hasTranslation) continue;
+
     const stats = drillStats.get(word.id) ?? { attempts: 0, correct: 0 };
     const meta = {
       status: word.status,
@@ -90,11 +99,11 @@ export function buildQuizItems(
       canClaimKnown: canClaimAsKnown(word.status, word.learning_started_at),
       daysUntilClaim: daysUntilClaimable(word.learning_started_at),
     };
+
     if (quizDirection === "en_to_ru") {
-      if (!word.translation?.trim()) continue;
       items.push({
         wordId: word.id,
-        prompt: word.translation,
+        prompt: word.translation!,
         expected: word.lemma,
         direction: quizDirection,
         lemma: word.lemma,
@@ -104,7 +113,7 @@ export function buildQuizItems(
       items.push({
         wordId: word.id,
         prompt: word.lemma,
-        expected: word.translation ?? "(unknown)",
+        expected: word.translation ?? "(add translation in vocab)",
         direction: quizDirection,
         lemma: word.lemma,
         ...meta,
@@ -113,6 +122,17 @@ export function buildQuizItems(
   }
 
   return items;
+}
+
+export function countDrillableWords(
+  words: Word[],
+  direction: DrillDirection
+): { total: number; withTranslation: number } {
+  const withTranslation = words.filter((w) => w.translation?.trim()).length;
+  if (direction === "en_to_ru") {
+    return { total: withTranslation, withTranslation };
+  }
+  return { total: words.length, withTranslation };
 }
 
 export function filterWordsForTraining(

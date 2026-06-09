@@ -7,6 +7,7 @@ import {
 } from "@/lib/db";
 import {
   buildQuizItems,
+  countDrillableWords,
   filterWordsForTraining,
 } from "@/lib/training/quiz";
 import type { DrillDirection } from "@/lib/constants";
@@ -30,10 +31,13 @@ export async function POST(request: NextRequest) {
     filtered.map((w) => w.id)
   );
   const items = buildQuizItems(filtered, direction, limit, drillStats);
+  const drillable = countDrillableWords(filtered, direction);
 
   return NextResponse.json({
     session,
     items,
     totalAvailable: filtered.length,
+    drillableCount: drillable.total,
+    withTranslationCount: drillable.withTranslation,
   });
 }
