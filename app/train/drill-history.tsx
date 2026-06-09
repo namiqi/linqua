@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui";
-import {
-  MarkKnownDoneIcon,
-  MarkKnownIconButton,
-} from "@/components/mark-known-icon-button";
+import { MarkKnownIconButton } from "@/components/mark-known-icon-button";
 import type { DrillSessionEntry, DrillSessionSummary } from "@/lib/types";
 import type { QuizItem } from "@/lib/training/quiz";
+
+function isLearningEntry(entry: DrillSessionEntry): boolean {
+  return entry.word_status !== "known";
+}
 
 interface DrillHistoryProps {
   refreshKey: number;
@@ -42,7 +43,8 @@ export function DrillHistory({ refreshKey, onRetry }: DrillHistoryProps) {
       const entriesRes = await fetch(`/api/train/sessions/${latest.id}`);
       const entriesData = await entriesRes.json();
       if (!entriesRes.ok) throw new Error(entriesData.error);
-      setEntries(entriesData.entries ?? []);
+      const loaded = (entriesData.entries ?? []) as DrillSessionEntry[];
+      setEntries(loaded.filter(isLearningEntry));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load drill history");
@@ -57,12 +59,8 @@ export function DrillHistory({ refreshKey, onRetry }: DrillHistoryProps) {
     loadLatest();
   }, [loadLatest, refreshKey]);
 
-  function markEntryKnown(wordId: string) {
-    setEntries((prev) =>
-      prev.map((entry) =>
-        entry.word_id === wordId ? { ...entry, word_status: "known" as const } : entry
-      )
-    );
+  function removeEntry(wordId: string) {
+    setEntries((prev) => prev.filter((entry) => entry.word_id !== wordId));
   }
 
   async function handleRetry() {
@@ -85,6 +83,10 @@ export function DrillHistory({ refreshKey, onRetry }: DrillHistoryProps) {
       setRetrying(false);
     }
   }
+
+  const hasMarkable = entries.some(
+    (entry) => entry.word_id && entry.word_status === "learning"
+  );
 
   if (loading) {
     return (
@@ -110,7 +112,7 @@ export function DrillHistory({ refreshKey, onRetry }: DrillHistoryProps) {
         <Button
           variant="secondary"
           onClick={handleRetry}
-          disabled={retrying || entries.length === 0}
+          disabled={retrying || session.total === 0}
         >
           {retrying ? "Starting…" : "Retry this drill"}
         </Button>
@@ -122,12 +124,18 @@ export function DrillHistory({ refreshKey, onRetry }: DrillHistoryProps) {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
           <span className="font-medium text-slate-900">{session.name}</span>
           <span className="text-sm text-slate-600">
-            {session.total > 0 ? `${session.correct} / ${session.total}` : "—"}
+            {session.total > 0
+              ? `${session.correct} / ${session.total}`
+              : "—"}
           </span>
         </div>
 
         {entries.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-slate-500">No answers recorded.</p>
+          <p className="px-4 py-6 text-sm text-slate-500">
+            {session.total > 0
+              ? "All words from this drill are known — nothing left to review here."
+              : "No answers recorded."}
+          </p>
         ) : (
           <div className="overflow-x-auto overscroll-x-contain">
             <table className="w-full min-w-[28rem] text-left text-xs">
@@ -137,7 +145,9 @@ export function DrillHistory({ refreshKey, onRetry }: DrillHistoryProps) {
                   <th className="px-4 py-2 font-medium whitespace-nowrap">Your answer</th>
                   <th className="px-4 py-2 font-medium whitespace-nowrap">Result</th>
                   <th className="px-4 py-2 font-medium whitespace-nowrap">Answer key</th>
-                  <th className="px-4 py-2 font-medium whitespace-nowrap w-10" />
+                  {hasMarkable && (
+                    <th className="px-4 py-2 font-medium whitespace-nowrap w-10" />
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -159,17 +169,17 @@ export function DrillHistory({ refreshKey, onRetry }: DrillHistoryProps) {
                       </span>
                     </td>
                     <td className="px-4 py-2 text-slate-600">{entry.expected_answer}</td>
-                    <td className="px-4 py-2">
-                      {entry.word_id && entry.word_status === "learning" ? (
-                        <MarkKnownIconButton
-                          wordId={entry.word_id}
-                          lemma={entry.word_lemma}
-                          onMarked={() => markEntryKnown(entry.word_id!)}
-                        />
-                      ) : entry.word_status === "known" ? (
-                        <MarkKnownDoneIcon />
-                      ) : null}
-                    </td>
+                    {hasMarkable && (
+                      <td className="px-4 py-2">
+                        {entry.word_id && entry.word_status === "learning" ? (
+                          <MarkKnownIconButton
+                            wordId={entry.word_id}
+                            lemma={entry.word_lemma}
+                            onMarked={() => removeEntry(entry.word_id!)}
+                          />
+                        ) : null}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

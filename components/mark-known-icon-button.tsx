@@ -69,15 +69,3 @@ export function MarkKnownIconButton({
     </button>
   );
 }
-
-export function MarkKnownDoneIcon() {
-  return (
-    <span
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-emerald-500"
-      title="Known"
-      aria-label="Known"
-    >
-      <CheckIcon className="h-4 w-4" />
-    </span>
-  );
-}
