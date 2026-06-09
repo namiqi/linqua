@@ -443,6 +443,34 @@ export async function promoteWordToKnown(
   if (error) throw error;
 }
 
+/** Manual override from vocab — no 7-day drill requirement */
+export async function markWordAsKnown(userId: string, wordId: string): Promise<void> {
+  const supabase = createServiceClient();
+  const { data: word, error: fetchError } = await supabase
+    .from("words")
+    .select("status")
+    .eq("user_id", userId)
+    .eq("id", wordId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!word) throw new Error("Word not found");
+  if (word.status !== "learning") {
+    throw new Error("Only learning words can be marked as known");
+  }
+
+  const { error } = await supabase
+    .from("words")
+    .update({
+      status: "known",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .eq("id", wordId);
+
+  if (error) throw error;
+}
+
 export async function demoteWordToLearning(
   userId: string,
   wordId: string

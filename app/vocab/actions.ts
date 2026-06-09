@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth";
-import { demoteWordToLearning } from "@/lib/db";
+import { demoteWordToLearning, markWordAsKnown } from "@/lib/db";
 
 export async function demoteWordToLearningAction(wordId: string) {
   const userId = await requireUserId();
@@ -10,4 +10,14 @@ export async function demoteWordToLearningAction(wordId: string) {
   revalidatePath("/vocab");
   revalidatePath("/dashboard");
   revalidatePath("/train");
+  revalidatePath("/stories");
+}
+
+export async function markWordAsKnownAction(wordId: string) {
+  const userId = await requireUserId();
+  await markWordAsKnown(userId, wordId);
+  revalidatePath("/vocab");
+  revalidatePath("/dashboard");
+  revalidatePath("/train");
+  revalidatePath("/stories");
 }

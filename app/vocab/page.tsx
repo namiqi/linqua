@@ -3,6 +3,7 @@ import { getWords, getTrainingStatsForWords } from "@/lib/db";
 import { daysUntilClaimable } from "@/lib/training/promotion";
 import { PageHeader } from "@/components/ui";
 import { MoveToLearningButton } from "./move-to-learning-button";
+import { MoveToKnownButton } from "./move-to-known-button";
 
 export default async function VocabPage({
   searchParams,
@@ -106,7 +107,7 @@ export default async function VocabPage({
                       {word.status === "known" ? (
                         <MoveToLearningButton wordId={word.id} lemma={word.lemma} />
                       ) : (
-                        <span className="text-xs text-slate-400">—</span>
+                        <MoveToKnownButton wordId={word.id} lemma={word.lemma} />
                       )}
                     </td>
                   </tr>
