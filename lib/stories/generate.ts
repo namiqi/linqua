@@ -2,6 +2,11 @@ import { STORY_UNLOCK_THRESHOLD } from "../constants";
 import { isHtmlResponse, parseJsonText } from "../http";
 import { createServiceClient } from "../supabase/server";
 import type { Word } from "../types";
+import {
+  EmptyGeminiResponseError,
+  isParseOrEmptyError,
+  parseStoryJson,
+} from "./parse";
 
 export interface GeneratedStory {
   title: string;
@@ -27,6 +32,27 @@ const DEFAULT_GEMINI_MODELS = [
 ];
 
 const PROMPT_VOCAB_LIMIT = 80;
+
+const STORY_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    title: { type: "STRING" },
+    content_ru: { type: "STRING" },
+    stretch_words: {
+      type: "ARRAY",
+      items: { type: "STRING" },
+    },
+  },
+  required: ["title", "content_ru", "stretch_words"],
+};
+
+interface GeminiGenerateResponse {
+  candidates?: {
+    content?: { parts?: { text?: string }[] };
+    finishReason?: string;
+  }[];
+  promptFeedback?: { blockReason?: string };
+}
 
 function extractStoryWords(text: string): string[] {
   return (text.match(CYRILLIC_WORD) ?? []).map((w) => w.toLowerCase());
@@ -142,18 +168,7 @@ STRICT VOCABULARY RULES:
 Learner vocabulary (sample of ${wordList.length} words, use any natural form):
 ${promptWords.join(", ")}
 
-Return JSON only:
-{"title": "...", "content_ru": "...", "stretch_words": ["word1", "word2"]}`;
-}
-
-function parseStoryJson(raw: string): {
-  title: string;
-  content_ru: string;
-  stretch_words?: string[];
-} {
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("Failed to parse story from Gemini response");
-  return JSON.parse(jsonMatch[0]);
+Return JSON with fields: title, content_ru, stretch_words`;
 }
 
 function getGeminiModels(): string[] {
@@ -184,6 +199,30 @@ export function formatGeminiError(status: number, body: string): string {
   return body.slice(0, 300);
 }
 
+function extractGeminiText(data: GeminiGenerateResponse): string {
+  const candidate = data.candidates?.[0];
+  if (!candidate) {
+    throw new EmptyGeminiResponseError("Gemini returned no candidates");
+  }
+
+  const finishReason = candidate.finishReason;
+  if (finishReason === "SAFETY" || finishReason === "RECITATION") {
+    throw new Error(`Gemini blocked the response (${finishReason})`);
+  }
+
+  const parts = candidate.content?.parts ?? [];
+  const text = parts.map((p) => p.text ?? "").join("").trim();
+  if (!text) {
+    throw new EmptyGeminiResponseError(
+      finishReason === "MAX_TOKENS"
+        ? "Gemini response was cut off (MAX_TOKENS)"
+        : "Gemini returned an empty response"
+    );
+  }
+
+  return text;
+}
+
 async function callGeminiModel(
   apiKey: string,
   model: string,
@@ -198,8 +237,9 @@ async function callGeminiModel(
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.6,
-          maxOutputTokens: 1024,
+          maxOutputTokens: 2048,
           responseMimeType: "application/json",
+          responseSchema: STORY_RESPONSE_SCHEMA,
         },
       }),
     }
@@ -220,10 +260,21 @@ async function callGeminiModel(
     throw new Error("Gemini returned an HTML error page. Check your API key and model name.");
   }
 
-  const data = parseJsonText<{
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  }>(body, "Gemini");
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const data = parseJsonText<GeminiGenerateResponse>(body, "Gemini");
+
+  if (data.promptFeedback?.blockReason) {
+    throw new Error(`Gemini blocked the prompt (${data.promptFeedback.blockReason})`);
+  }
+
+  return extractGeminiText(data);
+}
+
+function isRetryableGeminiError(error: unknown): boolean {
+  if (isParseOrEmptyError(error)) return true;
+  if (error instanceof Error && "isQuota" in error) {
+    return (error as { isQuota?: boolean }).isQuota === true;
+  }
+  return false;
 }
 
 export async function generateStoryWithGemini(
@@ -245,7 +296,7 @@ export async function generateStoryWithGemini(
       const raw = await callGeminiModel(apiKey, model, prompt);
       const parsed = parseStoryJson(raw);
       const knownSet = new Set(knownWords.map((w) => w.lemma.toLowerCase()));
-      const stretchWords = (parsed.stretch_words ?? [])
+      const stretchWords = parsed.stretch_words
         .map((w) => w.toLowerCase())
         .slice(0, maxStretchWords);
       const coverage = computeStoryCoverage(
@@ -262,11 +313,9 @@ export async function generateStoryWithGemini(
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      const isQuota =
-        error instanceof Error &&
-        "isQuota" in error &&
-        (error as { isQuota?: boolean }).isQuota;
-      if (!isQuota) throw lastError;
+      if (!isRetryableGeminiError(error)) {
+        throw lastError;
+      }
     }
   }
 
@@ -303,6 +352,22 @@ export async function generateFallbackStory(
   };
 }
 
+function isRecoverableStoryError(error: unknown): boolean {
+  if (isParseOrEmptyError(error)) return true;
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes("quota") ||
+      msg.includes("resource_exhausted") ||
+      msg.includes("invalid json") ||
+      msg.includes("html") ||
+      msg.includes("timed out") ||
+      msg.includes("all gemini models failed")
+    );
+  }
+  return false;
+}
+
 export async function generateStory(
   knownWords: Word[],
   length: "short" | "medium",
@@ -312,18 +377,10 @@ export async function generateStory(
     try {
       return await generateStoryWithGemini(knownWords, length, maxStretchWords);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "";
-      const isQuota =
-        message.includes("quota") || message.includes("RESOURCE_EXHAUSTED");
-      const isRecoverable =
-        isQuota ||
-        message.includes("invalid JSON") ||
-        message.includes("HTML") ||
-        message.includes("timed out");
-
-      if (isRecoverable) {
+      if (isRecoverableStoryError(error)) {
         const fallback = await generateFallbackStory(knownWords, length);
-        const suffix = isQuota ? "Gemini quota" : "fallback";
+        const message = error instanceof Error ? error.message.toLowerCase() : "";
+        const suffix = message.includes("quota") ? "Gemini quota" : "template fallback";
         return {
           ...fallback,
           title: `${fallback.title} (${suffix})`,
