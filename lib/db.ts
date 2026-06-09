@@ -12,7 +12,9 @@ import type {
   DrillSessionSummary,
   DrillSessionEntry,
 } from "./types";
+import { buildQuizItemsFromEntries } from "./training/quiz";
 import { formatDrillSessionName } from "./training/sessions";
+import type { QuizItem } from "./training/quiz";
 import { extractWords } from "./russian/extract";
 import { canClaimAsKnown } from "./training/promotion";
 import {
@@ -513,7 +515,7 @@ export async function getDrillSessionEntries(
   const { data, error } = await supabase
     .from("drill_session_entries")
     .select(
-      "id, session_id, word_lemma, direction, prompt, answer_given, expected_answer, correct, created_at"
+      "id, session_id, word_id, word_lemma, direction, prompt, answer_given, expected_answer, correct, created_at"
     )
     .eq("user_id", userId)
     .eq("session_id", sessionId)
@@ -521,6 +523,30 @@ export async function getDrillSessionEntries(
 
   if (error) throw error;
   return (data ?? []) as DrillSessionEntry[];
+}
+
+export async function retryDrillSession(
+  userId: string,
+  sourceSessionId: string
+): Promise<{ session: DrillSession; items: QuizItem[] }> {
+  const entries = await getDrillSessionEntries(userId, sourceSessionId);
+  if (!entries.length) {
+    throw new Error("That drill has no saved answers to retry");
+  }
+
+  const wordIds = entries
+    .map((e) => e.word_id)
+    .filter((id): id is string => Boolean(id));
+  const words = await getWords(userId);
+  const drillStats = await getTrainingStatsForWords(userId, wordIds);
+  const items = buildQuizItemsFromEntries(entries, words, drillStats);
+
+  if (!items.length) {
+    throw new Error("None of the words from that drill are still in your vocab");
+  }
+
+  const session = await createDrillSession(userId);
+  return { session, items };
 }
 
 export async function getTrainingStatsForUser(

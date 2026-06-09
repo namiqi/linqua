@@ -92,6 +92,7 @@ export interface DrillSessionSummary extends DrillSession {
 export interface DrillSessionEntry {
   id: string;
   session_id: string;
+  word_id: string | null;
   word_lemma: string;
   direction: "en_to_ru" | "ru_to_en";
   prompt: string;

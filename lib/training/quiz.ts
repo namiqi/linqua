@@ -149,3 +149,41 @@ export function filterWordsForTraining(
   }
   return filtered;
 }
+
+export function buildQuizItemsFromEntries(
+  entries: Array<{
+    word_id: string | null;
+    word_lemma: string;
+    direction: QuizDirection;
+    prompt: string;
+    expected_answer: string;
+  }>,
+  words: Word[],
+  drillStats: Map<string, WordDrillStats>
+): QuizItem[] {
+  const items: QuizItem[] = [];
+
+  for (const entry of entries) {
+    const word =
+      (entry.word_id ? words.find((w) => w.id === entry.word_id) : undefined) ??
+      words.find((w) => w.lemma === entry.word_lemma);
+    if (!word) continue;
+
+    const stats = drillStats.get(word.id) ?? { attempts: 0, correct: 0 };
+    items.push({
+      wordId: word.id,
+      prompt: entry.prompt,
+      expected: entry.expected_answer,
+      direction: entry.direction,
+      lemma: entry.word_lemma,
+      status: word.status,
+      learningStartedAt: word.learning_started_at,
+      drillAttempts: stats.attempts,
+      drillCorrect: stats.correct,
+      canClaimKnown: canClaimAsKnown(word.status, word.learning_started_at),
+      daysUntilClaim: daysUntilClaimable(word.learning_started_at),
+    });
+  }
+
+  return items;
+}

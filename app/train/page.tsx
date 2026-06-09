@@ -67,6 +67,21 @@ export default function TrainPage() {
       .catch(() => setPoolInfo(null));
   }, [phase, drillPool, direction]);
 
+  const beginDrill = useCallback(
+    (quizItems: QuizItem[], session: { id: string; name: string }) => {
+      setItems(quizItems);
+      setSessionId(session.id);
+      setSessionName(session.name);
+      setIndex(0);
+      setAnswer("");
+      setFeedback(null);
+      setClaimMessage(null);
+      setScore({ correct: 0, total: 0 });
+      setPhase("drill");
+    },
+    []
+  );
+
   const startDrill = useCallback(async () => {
     setLoading(true);
     try {
@@ -89,21 +104,16 @@ export default function TrainPage() {
         );
         return;
       }
-      setItems(data.items);
-      setSessionId(data.session?.id ?? null);
-      setSessionName(data.session?.name ?? null);
-      setIndex(0);
-      setAnswer("");
-      setFeedback(null);
-      setClaimMessage(null);
-      setScore({ correct: 0, total: 0 });
-      setPhase("drill");
+      beginDrill(data.items, {
+        id: data.session.id,
+        name: data.session.name,
+      });
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to start drill");
     } finally {
       setLoading(false);
     }
-  }, [drillPool, limit, direction]);
+  }, [drillPool, limit, direction, beginDrill]);
 
   async function submitAnswer() {
     if (!current || feedback) return;
@@ -364,8 +374,36 @@ export default function TrainPage() {
             <p className="mt-2 text-3xl font-bold text-indigo-600">
               {score.correct} / {score.total}
             </p>
-            <div className="mt-6 flex justify-center gap-3">
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
               <Button onClick={() => setPhase("setup")}>New drill</Button>
+              {sessionId && (
+                <Button
+                  variant="secondary"
+                  disabled={loading}
+                  onClick={async () => {
+                    setLoading(true);
+                    try {
+                      const res = await fetch("/api/train/retry", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ sessionId }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error);
+                      beginDrill(data.items, {
+                        id: data.session.id,
+                        name: data.session.name,
+                      });
+                    } catch (e) {
+                      alert(e instanceof Error ? e.message : "Failed to retry drill");
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                >
+                  Retry same drill
+                </Button>
+              )}
               <a href="/dashboard">
                 <Button variant="secondary">Dashboard</Button>
               </a>
@@ -373,7 +411,7 @@ export default function TrainPage() {
           </div>
         )}
 
-        <DrillHistory refreshKey={historyRefreshKey} />
+        <DrillHistory refreshKey={historyRefreshKey} onRetry={beginDrill} />
       </main>
     </div>
   );
