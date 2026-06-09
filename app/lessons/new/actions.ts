@@ -23,7 +23,7 @@ export async function createLessonAction(
     }
 
     const lessonId = await createLesson(userId, name, transcript);
-    redirect(`/lessons/${lessonId}/review`);
+    redirect(`/lessons/${lessonId}`);
   } catch (error) {
     if (isNextRedirect(error)) throw error;
     return { error: formatDbError(error) };

@@ -8,6 +8,7 @@ export async function renameLessonAction(lessonId: string, name: string) {
   const userId = await requireUserId();
   await updateLessonName(userId, lessonId, name);
   revalidatePath("/dashboard");
+  revalidatePath(`/lessons/${lessonId}`);
   revalidatePath(`/lessons/${lessonId}/review`);
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PageHeader, Button, ProgressBar } from "@/components/ui";
 import type { Lesson, ReviewWord } from "@/lib/types";
@@ -74,7 +75,7 @@ export function ReviewClient({ lesson, words }: ReviewClientProps) {
 
   async function handleFinish() {
     await finishReviewAction(lesson.id);
-    router.push("/dashboard");
+    router.push(`/lessons/${lesson.id}`);
   }
 
   return (
@@ -87,9 +88,14 @@ export function ReviewClient({ lesson, words }: ReviewClientProps) {
 
       <main className="mx-auto max-w-2xl px-4 py-8">
         {total === 0 ? (
-          <p className="mt-8 text-center text-slate-500">
-            No new words to review — you already know all words in this lesson.
-          </p>
+          <div className="mt-8 rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <p className="text-slate-600">
+              No new words to review — you already marked every word in this lesson.
+            </p>
+            <Link href={`/lessons/${lesson.id}`} className="mt-6 inline-block">
+              <Button>Read the script</Button>
+            </Link>
+          </div>
         ) : (
           <>
             <ProgressBar
@@ -105,14 +111,22 @@ export function ReviewClient({ lesson, words }: ReviewClientProps) {
                   You reviewed {total} words from this lesson.
                 </p>
                 <div className="mt-6 flex justify-center gap-3">
-                  <Button onClick={handleFinish}>Back to dashboard</Button>
-                  <a href="/train">
-                    <Button variant="secondary">Train vocab</Button>
-                  </a>
+                  <Button onClick={handleFinish}>Read the script</Button>
+                  <Link href={`/lessons/${lesson.id}`}>
+                    <Button variant="secondary">Skip to script</Button>
+                  </Link>
                 </div>
               </div>
             ) : current ? (
               <div className="mt-8 rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+                <div className="mb-4 flex justify-end">
+                  <Link
+                    href={`/lessons/${lesson.id}`}
+                    className="text-sm text-slate-500 hover:text-slate-700"
+                  >
+                    View script
+                  </Link>
+                </div>
                 <p className="text-sm text-slate-500">
                   Word {index + 1} of {total}
                   {current.occurrence_count > 1 &&

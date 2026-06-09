@@ -18,6 +18,7 @@ export async function markWordAction(
 export async function finishReviewAction(lessonId: string) {
   const userId = await requireUserId();
   await markLessonReviewed(userId, lessonId);
+  revalidatePath(`/lessons/${lessonId}`);
   revalidatePath(`/lessons/${lessonId}/review`);
   revalidatePath("/dashboard");
   revalidatePath("/vocab");

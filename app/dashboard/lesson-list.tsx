@@ -16,7 +16,7 @@ export function LessonList({ lessons }: LessonListProps) {
           key={lesson.id}
           id={lesson.id}
           title={lesson.name}
-          href={`/lessons/${lesson.id}/review`}
+          href={`/lessons/${lesson.id}`}
           subtitle={
             <>
               {new Date(lesson.created_at).toLocaleDateString()} · {lesson.wordCount} words
@@ -28,7 +28,11 @@ export function LessonList({ lessons }: LessonListProps) {
               <span className="mt-3 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
                 Review pending
               </span>
-            ) : undefined
+            ) : (
+              <span className="mt-3 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                Read script
+              </span>
+            )
           }
           deleteConfirmMessage={`Delete lesson "${lesson.name}"?\n\nYour vocabulary from this lesson will stay in your word list.`}
           onRename={renameLessonAction}

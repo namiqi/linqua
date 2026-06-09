@@ -128,6 +128,27 @@ export async function createLesson(
   return result.data.id;
 }
 
+export async function getLesson(
+  userId: string,
+  lessonId: string
+): Promise<Lesson | null> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("lessons")
+    .select("*")
+    .eq("id", lessonId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  return {
+    ...(data as Lesson),
+    extracted_words: getLessonExtractedWords(data),
+  };
+}
+
 export async function getLessonReviewWords(
   userId: string,
   lessonId: string
