@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader, Button } from "@/components/ui";
+import { MarkKnownIconButton } from "@/components/mark-known-icon-button";
 import type { DrillDirection } from "@/lib/constants";
 import type { QuizItem } from "@/lib/training/quiz";
 import { DrillHistory } from "./drill-history";
@@ -324,13 +325,32 @@ export default function TrainPage() {
 
             {feedback && (
               <div
-                className={`mt-4 rounded-lg p-3 text-sm ${
+                className={`mt-4 flex items-start justify-between gap-3 rounded-lg p-3 text-sm ${
                   feedback.correct
                     ? "bg-emerald-50 text-emerald-800"
                     : "bg-rose-50 text-rose-800"
                 }`}
               >
-                {feedback.correct ? "Correct!" : `Expected: ${feedback.expected}`}
+                <span>
+                  {feedback.correct ? "Correct!" : `Expected: ${feedback.expected}`}
+                </span>
+                {current.status === "learning" && (
+                  <MarkKnownIconButton
+                    wordId={current.wordId}
+                    lemma={current.lemma}
+                    confirm={false}
+                    onMarked={() => {
+                      setClaimMessage(`"${current.lemma}" marked as known.`);
+                      setItems((prev) =>
+                        prev.map((item) =>
+                          item.wordId === current.wordId
+                            ? { ...item, status: "known", canClaimKnown: false }
+                            : item
+                        )
+                      );
+                    }}
+                  />
+                )}
               </div>
             )}
 

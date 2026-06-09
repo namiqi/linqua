@@ -522,7 +522,28 @@ export async function getDrillSessionEntries(
     .order("created_at", { ascending: true });
 
   if (error) throw error;
-  return (data ?? []) as DrillSessionEntry[];
+  const entries = (data ?? []) as DrillSessionEntry[];
+
+  const wordIds = entries
+    .map((e) => e.word_id)
+    .filter((id): id is string => Boolean(id));
+  if (!wordIds.length) return entries;
+
+  const { data: words, error: wordsError } = await supabase
+    .from("words")
+    .select("id, status")
+    .eq("user_id", userId)
+    .in("id", wordIds);
+
+  if (wordsError) throw wordsError;
+  const statusMap = new Map(
+    (words ?? []).map((w) => [w.id, w.status as "known" | "learning"])
+  );
+
+  return entries.map((entry) => ({
+    ...entry,
+    word_status: entry.word_id ? (statusMap.get(entry.word_id) ?? null) : null,
+  }));
 }
 
 export async function retryDrillSession(

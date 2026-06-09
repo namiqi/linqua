@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui";
+import {
+  MarkKnownDoneIcon,
+  MarkKnownIconButton,
+} from "@/components/mark-known-icon-button";
 import type { DrillSessionEntry, DrillSessionSummary } from "@/lib/types";
 import type { QuizItem } from "@/lib/training/quiz";
-
-function formatDirection(direction: DrillSessionEntry["direction"]): string {
-  return direction === "en_to_ru" ? "EN → RU" : "RU → EN";
-}
 
 interface DrillHistoryProps {
   refreshKey: number;
@@ -56,6 +56,14 @@ export function DrillHistory({ refreshKey, onRetry }: DrillHistoryProps) {
   useEffect(() => {
     loadLatest();
   }, [loadLatest, refreshKey]);
+
+  function markEntryKnown(wordId: string) {
+    setEntries((prev) =>
+      prev.map((entry) =>
+        entry.word_id === wordId ? { ...entry, word_status: "known" as const } : entry
+      )
+    );
+  }
 
   async function handleRetry() {
     if (!session) return;
@@ -122,22 +130,19 @@ export function DrillHistory({ refreshKey, onRetry }: DrillHistoryProps) {
           <p className="px-4 py-6 text-sm text-slate-500">No answers recorded.</p>
         ) : (
           <div className="overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[32rem] text-left text-xs">
+            <table className="w-full min-w-[28rem] text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50">
                 <tr className="text-slate-500">
-                  <th className="px-4 py-2 font-medium whitespace-nowrap">Direction</th>
                   <th className="px-4 py-2 font-medium whitespace-nowrap">Prompt</th>
                   <th className="px-4 py-2 font-medium whitespace-nowrap">Your answer</th>
                   <th className="px-4 py-2 font-medium whitespace-nowrap">Result</th>
                   <th className="px-4 py-2 font-medium whitespace-nowrap">Answer key</th>
+                  <th className="px-4 py-2 font-medium whitespace-nowrap w-10" />
                 </tr>
               </thead>
               <tbody>
                 {entries.map((entry) => (
                   <tr key={entry.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-4 py-2 whitespace-nowrap text-slate-500">
-                      {formatDirection(entry.direction)}
-                    </td>
                     <td className="px-4 py-2 text-slate-600">{entry.prompt}</td>
                     <td className="px-4 py-2 text-slate-600">
                       {entry.answer_given || "—"}
@@ -154,6 +159,17 @@ export function DrillHistory({ refreshKey, onRetry }: DrillHistoryProps) {
                       </span>
                     </td>
                     <td className="px-4 py-2 text-slate-600">{entry.expected_answer}</td>
+                    <td className="px-4 py-2">
+                      {entry.word_id && entry.word_status === "learning" ? (
+                        <MarkKnownIconButton
+                          wordId={entry.word_id}
+                          lemma={entry.word_lemma}
+                          onMarked={() => markEntryKnown(entry.word_id!)}
+                        />
+                      ) : entry.word_status === "known" ? (
+                        <MarkKnownDoneIcon />
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>

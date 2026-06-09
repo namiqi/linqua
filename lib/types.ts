@@ -94,6 +94,7 @@ export interface DrillSessionEntry {
   session_id: string;
   word_id: string | null;
   word_lemma: string;
+  word_status?: "known" | "learning" | null;
   direction: "en_to_ru" | "ru_to_en";
   prompt: string;
   answer_given: string;
