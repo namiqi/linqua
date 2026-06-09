@@ -37,14 +37,28 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { wordId, direction, answer, expected } = body;
+  const { wordId, direction, answer, expected, sessionId, prompt, lemma } = body;
 
   if (!wordId || !direction || answer === undefined || !expected) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
   const correct = checkAnswer(expected, answer);
-  const drillStats = await saveTrainingResult(userId, wordId, direction, correct);
+  const drillStats = await saveTrainingResult(
+    userId,
+    wordId,
+    direction,
+    correct,
+    sessionId
+      ? {
+          sessionId,
+          wordLemma: lemma ?? expected,
+          prompt: prompt ?? "",
+          answerGiven: String(answer),
+          expectedAnswer: expected,
+        }
+      : undefined
+  );
 
   return NextResponse.json({ correct, expected, drillStats });
 }

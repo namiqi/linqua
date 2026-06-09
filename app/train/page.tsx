@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader, Button } from "@/components/ui";
 import type { DrillDirection } from "@/lib/constants";
 import type { QuizItem } from "@/lib/training/quiz";
+import { DrillHistory } from "./drill-history";
 
 type Phase = "setup" | "drill" | "done";
 type DrillPool = "learning" | "all";
@@ -34,18 +35,24 @@ export default function TrainPage() {
   const [score, setScore] = useState({ correct: 0, total: 0 });
   const [loading, setLoading] = useState(false);
   const [claimMessage, setClaimMessage] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionName, setSessionName] = useState<string | null>(null);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
   const current = items[index];
 
   const startDrill = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        includeKnown: String(drillPool === "all"),
-        limit: String(limit),
-        direction,
+      const res = await fetch("/api/train/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          includeKnown: drillPool === "all",
+          limit,
+          direction,
+        }),
       });
-      const res = await fetch(`/api/train?${params}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       if (!data.items?.length) {
@@ -57,6 +64,8 @@ export default function TrainPage() {
         return;
       }
       setItems(data.items);
+      setSessionId(data.session?.id ?? null);
+      setSessionName(data.session?.name ?? null);
       setIndex(0);
       setAnswer("");
       setFeedback(null);
@@ -83,6 +92,9 @@ export default function TrainPage() {
           direction: current.direction,
           answer,
           expected: current.expected,
+          sessionId,
+          prompt: current.prompt,
+          lemma: current.lemma,
         }),
       });
       const data = await res.json();
@@ -133,6 +145,7 @@ export default function TrainPage() {
     setClaimMessage(null);
     if (index + 1 >= items.length) {
       setPhase("done");
+      setHistoryRefreshKey((k) => k + 1);
       return;
     }
     setIndex((i) => i + 1);
@@ -160,7 +173,7 @@ export default function TrainPage() {
         active="train"
       />
 
-      <main className="mx-auto max-w-2xl px-4 py-8">
+      <main className="mx-auto max-w-3xl px-4 py-8">
         {phase === "setup" && (
           <div className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
             <div>
@@ -227,6 +240,7 @@ export default function TrainPage() {
         {phase === "drill" && current && (
           <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
             <p className="text-sm text-slate-500">
+              {sessionName && <span className="block text-slate-400">{sessionName}</span>}
               {index + 1} / {items.length} ·{" "}
               {current.direction === "en_to_ru" ? "English → Russian" : "Russian → English"}
               {current.status === "learning" && (
@@ -321,6 +335,8 @@ export default function TrainPage() {
             </div>
           </div>
         )}
+
+        <DrillHistory refreshKey={historyRefreshKey} />
       </main>
     </div>
   );

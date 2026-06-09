@@ -8,7 +8,11 @@ import type {
   Story,
   Word,
   PracticeSentence,
+  DrillSession,
+  DrillSessionSummary,
+  DrillSessionEntry,
 } from "./types";
+import { formatDrillSessionName } from "./training/sessions";
 import { extractWords } from "./russian/extract";
 import { canClaimAsKnown } from "./training/promotion";
 import {
@@ -356,11 +360,36 @@ export async function getWords(
   }));
 }
 
+export async function updateWordTranslation(
+  userId: string,
+  wordId: string,
+  translation: string
+): Promise<void> {
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("words")
+    .update({
+      translation: translation.trim() || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .eq("id", wordId);
+
+  if (error) throw error;
+}
+
 export async function saveTrainingResult(
   userId: string,
   wordId: string,
   direction: "en_to_ru" | "ru_to_en",
-  correct: boolean
+  correct: boolean,
+  session?: {
+    sessionId: string;
+    wordLemma: string;
+    prompt: string;
+    answerGiven: string;
+    expectedAnswer: string;
+  }
 ): Promise<{ attempts: number; correct: number }> {
   const supabase = createServiceClient();
   await supabase.from("training_results").insert({
@@ -369,6 +398,20 @@ export async function saveTrainingResult(
     direction,
     correct,
   });
+
+  if (session) {
+    await supabase.from("drill_session_entries").insert({
+      session_id: session.sessionId,
+      user_id: userId,
+      word_id: wordId,
+      word_lemma: session.wordLemma,
+      direction,
+      prompt: session.prompt,
+      answer_given: session.answerGiven,
+      expected_answer: session.expectedAnswer,
+      correct,
+    });
+  }
 
   const { data, error } = await supabase
     .from("training_results")
@@ -380,6 +423,103 @@ export async function saveTrainingResult(
   const attempts = data?.length ?? 0;
   const correctCount = data?.filter((r) => r.correct).length ?? 0;
   return { attempts, correct: correctCount };
+}
+
+export async function createDrillSession(userId: string): Promise<DrillSession> {
+  const supabase = createServiceClient();
+  const { count, error: countError } = await supabase
+    .from("drill_sessions")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId);
+
+  if (countError && !countError.message.includes("does not exist")) {
+    throw countError;
+  }
+
+  const drillNumber = (count ?? 0) + 1;
+  const now = new Date();
+  const name = formatDrillSessionName(drillNumber, now);
+
+  const { data, error } = await supabase
+    .from("drill_sessions")
+    .insert({
+      user_id: userId,
+      drill_number: drillNumber,
+      name,
+    })
+    .select("*")
+    .single();
+
+  if (error || !data) throw error ?? new Error("Failed to create drill session");
+  return data as DrillSession;
+}
+
+export async function getDrillSessions(
+  userId: string,
+  limit = 50
+): Promise<DrillSessionSummary[]> {
+  const supabase = createServiceClient();
+  const { data: sessions, error } = await supabase
+    .from("drill_sessions")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    if (error.message.includes("does not exist")) return [];
+    throw error;
+  }
+  if (!sessions?.length) return [];
+
+  const sessionIds = sessions.map((s) => s.id);
+  const totals = new Map<string, { total: number; correct: number }>();
+
+  for (const idBatch of chunk(sessionIds, BATCH_SIZE)) {
+    const { data: entries, error: entriesError } = await supabase
+      .from("drill_session_entries")
+      .select("session_id, correct")
+      .in("session_id", idBatch);
+
+    if (entriesError) {
+      if (entriesError.message.includes("does not exist")) break;
+      throw entriesError;
+    }
+
+    for (const row of entries ?? []) {
+      const current = totals.get(row.session_id) ?? { total: 0, correct: 0 };
+      current.total++;
+      if (row.correct) current.correct++;
+      totals.set(row.session_id, current);
+    }
+  }
+
+  return sessions.map((s) => {
+    const stats = totals.get(s.id) ?? { total: 0, correct: 0 };
+    return {
+      ...(s as DrillSession),
+      total: stats.total,
+      correct: stats.correct,
+    };
+  });
+}
+
+export async function getDrillSessionEntries(
+  userId: string,
+  sessionId: string
+): Promise<DrillSessionEntry[]> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("drill_session_entries")
+    .select(
+      "id, session_id, word_lemma, direction, prompt, answer_given, expected_answer, correct, created_at"
+    )
+    .eq("user_id", userId)
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as DrillSessionEntry[];
 }
 
 export async function getTrainingStatsForWords(
@@ -821,6 +961,14 @@ export async function resetUserData(userId: string): Promise<void> {
     .delete()
     .eq("user_id", userId);
   if (trainingError) throw trainingError;
+
+  const { error: drillSessionsError } = await supabase
+    .from("drill_sessions")
+    .delete()
+    .eq("user_id", userId);
+  if (drillSessionsError && !drillSessionsError.message.includes("does not exist")) {
+    throw drillSessionsError;
+  }
 
   const { error: storiesError } = await supabase
     .from("stories")

@@ -4,6 +4,7 @@ import { daysUntilClaimable } from "@/lib/training/promotion";
 import { PageHeader } from "@/components/ui";
 import { MoveToLearningButton } from "./move-to-learning-button";
 import { MoveToKnownButton } from "./move-to-known-button";
+import { EditableTranslation } from "./editable-translation";
 
 export default async function VocabPage({
   searchParams,
@@ -70,8 +71,11 @@ export default async function VocabPage({
                   return (
                   <tr key={word.id} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-3 font-medium text-slate-900">{word.lemma}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {word.translation ?? "—"}
+                    <td className="px-4 py-3">
+                      <EditableTranslation
+                        wordId={word.id}
+                        translation={word.translation}
+                      />
                     </td>
                     <td className="px-4 py-3">
                       <span

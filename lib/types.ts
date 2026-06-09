@@ -75,3 +75,28 @@ export interface PracticeSentence {
   source_lesson_id: string | null;
   created_at: string;
 }
+
+export interface DrillSession {
+  id: string;
+  user_id: string;
+  drill_number: number;
+  name: string;
+  created_at: string;
+}
+
+export interface DrillSessionSummary extends DrillSession {
+  total: number;
+  correct: number;
+}
+
+export interface DrillSessionEntry {
+  id: string;
+  session_id: string;
+  word_lemma: string;
+  direction: "en_to_ru" | "ru_to_en";
+  prompt: string;
+  answer_given: string;
+  expected_answer: string;
+  correct: boolean;
+  created_at: string;
+}
