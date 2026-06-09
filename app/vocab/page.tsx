@@ -2,6 +2,7 @@ import { requireUserId } from "@/lib/auth";
 import { getWords, getTrainingStatsForWords } from "@/lib/db";
 import { daysUntilClaimable } from "@/lib/training/promotion";
 import { PageHeader } from "@/components/ui";
+import { MoveToLearningButton } from "./move-to-learning-button";
 
 export default async function VocabPage({
   searchParams,
@@ -59,6 +60,7 @@ export default async function VocabPage({
                   <th className="px-4 py-3 font-medium text-slate-700">English</th>
                   <th className="px-4 py-3 font-medium text-slate-700">Status</th>
                   <th className="px-4 py-3 font-medium text-slate-700">Drill</th>
+                  <th className="px-4 py-3 font-medium text-slate-700">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -98,6 +100,13 @@ export default async function VocabPage({
                         </span>
                       ) : (
                         "—"
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {word.status === "known" ? (
+                        <MoveToLearningButton wordId={word.id} lemma={word.lemma} />
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
                       )}
                     </td>
                   </tr>

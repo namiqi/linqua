@@ -443,6 +443,38 @@ export async function promoteWordToKnown(
   if (error) throw error;
 }
 
+export async function demoteWordToLearning(
+  userId: string,
+  wordId: string
+): Promise<void> {
+  const supabase = createServiceClient();
+  const { data: word, error: fetchError } = await supabase
+    .from("words")
+    .select("status")
+    .eq("user_id", userId)
+    .eq("id", wordId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!word) throw new Error("Word not found");
+  if (word.status !== "known") {
+    throw new Error("Only known words can be moved back to learning");
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("words")
+    .update({
+      status: "learning",
+      learning_started_at: now,
+      updated_at: now,
+    })
+    .eq("user_id", userId)
+    .eq("id", wordId);
+
+  if (error) throw error;
+}
+
 export async function getStories(userId: string): Promise<Story[]> {
   const supabase = createServiceClient();
   const { data, error } = await supabase
